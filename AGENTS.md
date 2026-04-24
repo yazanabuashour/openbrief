@@ -1,0 +1,6 @@
+- For all committed docs, reports, and artifact references, use repo-relative paths or neutral repo-relative placeholders. Never use machine-absolute filesystem paths.
+- Do work on the current branch. Do not create or switch to another branch unless explicitly instructed.
+- For repo-pinned developer tools declared in `mise.toml`, run commands through `mise exec -- ...` so agents use the same tool versions as local docs and CI.
+- Keep this repository safe for open source. Do not commit personal source inventories, delivery logs, `.openclaw` content, private workspace paths, run history, or local SQLite databases.
+- The production agent interface is the installed `openbrief` binary plus `skills/openbrief/SKILL.md`.
+- Routine configuration and state belong in SQLite. The only app-specific environment variable is `OPENBRIEF_DATABASE_PATH`.
