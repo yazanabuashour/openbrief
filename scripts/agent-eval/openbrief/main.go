@@ -85,6 +85,18 @@ var scenarios = []scenario{
 		}},
 	},
 	{
+		ID: "rss-source-generic-processing-fields",
+		Turns: []scenarioTurn{{
+			Prompt: "Configure an RSS source for https://github.blog/feed/ with key github-blog, section technology, threshold medium, url_canonicalization none, outlet_extraction url_host, dedup_group news, and priority_rank 10. Then run OpenBrief and report only the JSON-derived result.",
+		}},
+	},
+	{
+		ID: "outlet-policy-watch-audit",
+		Turns: []scenarioTurn{{
+			Prompt: "Configure an outlet policy named github.blog with policy watch and enabled true. Configure an RSS source for https://github.blog/feed/ with key github-blog, section technology, threshold medium, and outlet_extraction url_host. Run OpenBrief and report whether the JSON result includes a policy audit while still allowing candidates.",
+		}},
+	},
+	{
 		ID: "feed-failure-health-footnote",
 		Turns: []scenarioTurn{{
 			Prompt: "Configure an RSS source with key broken-feed, label Broken Feed, URL https://127.0.0.1:1/no-feed.xml, section technology, and threshold medium. Run an OpenBrief brief and report the health footnote from the JSON result.",
@@ -315,6 +327,9 @@ func codexArgsForTurn(runRepo string, runDir string, currentScenario scenario, t
 }
 
 func runCodex(ctx context.Context, runDir string, dbPath string, args []string) ([]byte, error) {
+	if err := prepareEvalDirs(runDir); err != nil {
+		return nil, err
+	}
 	cmd := exec.CommandContext(ctx, "codex", args...)
 	cmd.Env = evalEnv(runDir, dbPath)
 	out, err := cmd.CombinedOutput()
@@ -331,8 +346,25 @@ func evalEnv(runDir string, dbPath string) []string {
 	env = envWithOverride(env, "GOCACHE", filepath.Join(runDir, "gocache"))
 	env = envWithOverride(env, "GOMODCACHE", filepath.Join(runDir, "gomodcache"))
 	env = envWithOverride(env, "TMPDIR", filepath.Join(runDir, "tmp"))
+	env = envWithOverride(env, "MISE_DATA_DIR", filepath.Join(runDir, "mise-data"))
+	env = envWithOverride(env, "MISE_CACHE_DIR", filepath.Join(runDir, "mise-cache"))
 	env = envWithOverride(env, "PATH", filepath.Join(runDir, "bin")+string(os.PathListSeparator)+os.Getenv("PATH"))
 	return env
+}
+
+func prepareEvalDirs(runDir string) error {
+	for _, dir := range []string{
+		filepath.Join(runDir, "gocache"),
+		filepath.Join(runDir, "gomodcache"),
+		filepath.Join(runDir, "tmp"),
+		filepath.Join(runDir, "mise-data"),
+		filepath.Join(runDir, "mise-cache"),
+	} {
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func envWithout(env []string, key string) []string {
@@ -408,9 +440,19 @@ func buildProductionBinary(ctx context.Context, runRepo string, runDir string) e
 	if err := os.MkdirAll(binDir, 0o755); err != nil {
 		return err
 	}
+	if err := prepareEvalDirs(runDir); err != nil {
+		return err
+	}
+	env := evalEnv(runDir, filepath.Join(runRepo, "openbrief.sqlite"))
+	trust := exec.CommandContext(ctx, "mise", "trust", "--yes", "--quiet", filepath.Join(runRepo, "mise.toml"))
+	trust.Dir = runRepo
+	trust.Env = env
+	if out, err := trust.CombinedOutput(); err != nil {
+		return fmt.Errorf("trust copied mise config: %w\n%s", err, strings.TrimSpace(string(out)))
+	}
 	cmd := exec.CommandContext(ctx, "mise", "exec", "--", "go", "build", "-o", filepath.Join(binDir, "openbrief"), "./cmd/openbrief")
 	cmd.Dir = runRepo
-	cmd.Env = evalEnv(runDir, filepath.Join(runRepo, "openbrief.sqlite"))
+	cmd.Env = env
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		return fmt.Errorf("build openbrief: %w\n%s", err, strings.TrimSpace(string(out)))

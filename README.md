@@ -80,8 +80,11 @@ openbrief config
 openbrief brief
 ```
 
-Configuration actions manage sources and outlet policies. Brief actions run the
-brief, validate the runtime, and record delivered messages for deduplication.
+Configuration actions manage sources and outlet policies. Sources are generic:
+RSS/Atom feeds, GitHub releases, and optional feed-processing rules such as URL
+canonicalization, outlet extraction, priority rank, dedup groups, and
+always-report behavior. Brief actions run the brief, validate the runtime, and
+record delivered messages for deduplication.
 
 ## Local Storage
 
@@ -106,9 +109,12 @@ mise exec -- gofmt -w .
 mise exec -- ./scripts/validate-agent-skill.sh skills/openbrief
 ```
 
-The initial production runner supports RSS/Atom feeds and GitHub releases.
-Google News decoding, paywall heuristics, and advanced topic deduplication need
-ADRs, POCs, and eval evidence before production use.
+The production runner supports RSS/Atom feeds, GitHub releases, generic URL
+canonicalization strategies, outlet policy suppression, topic deduplication,
+delivery-history suppression, and feed health warnings. End users configure
+their own feed URLs, outlet policies, priorities, and always-report choices in
+the host SQLite database; this repository does not seed personal sources or
+policies.
 
 ## Releases
 

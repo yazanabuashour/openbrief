@@ -56,7 +56,7 @@ Common request shapes:
 ```json
 {"action":"init"}
 {"action":"inspect_config"}
-{"action":"replace_sources","sources":[{"key":"example","label":"Example","kind":"rss","url":"https://example.com/feed.xml","section":"technology","threshold":"medium","enabled":true}]}
+{"action":"replace_sources","sources":[{"key":"example","label":"Example","kind":"rss","url":"https://example.com/feed.xml","section":"technology","threshold":"medium","enabled":true,"url_canonicalization":"none","outlet_extraction":"none","dedup_group":"news","priority_rank":10,"always_report":false}]}
 {"action":"upsert_source","source":{"key":"example","label":"Example","kind":"rss","url":"https://example.com/feed.xml","section":"technology","threshold":"medium","enabled":true}}
 {"action":"upsert_source","source":{"key":"tool-releases","label":"Tool Releases","kind":"github_release","repo":"owner/name","section":"releases","threshold":"always","enabled":true}}
 {"action":"delete_source","key":"example"}
@@ -66,6 +66,18 @@ Common request shapes:
 Supported source kinds are `rss`, `atom`, and `github_release`. Supported
 thresholds are `always`, `medium`, `high`, and `audit`. A fresh database has no
 sources.
+
+Optional generic feed-processing fields:
+
+- `url_canonicalization`: `none`, `feedburner_redirect`, or
+  `google_news_article_url`
+- `outlet_extraction`: `none`, `title_suffix`, or `url_host`
+- `dedup_group`: string used to collapse same-topic candidates across sources
+- `priority_rank`: lower numbers rank earlier when duplicate candidates compete
+- `always_report`: true makes new feed items `must_include`
+
+Feed URLs, topics, priorities, always-report settings, and outlet policies are
+operator configuration. Do not infer or recover them from old files.
 
 ## Brief Tasks
 
@@ -84,8 +96,9 @@ Request shapes:
 ```
 
 For `run_brief`, use `must_include`, `candidates`, `health_footnote`,
-`suppressed`, and `fetch_status` from the JSON result. Do not inspect any files
-to supplement the result. If the result has `rejected: true`, answer with the
+`suppressed_recent`, `suppressed_policy`, `suppressed_unresolved`, `suppressed`,
+and `fetch_status` from the JSON result. Do not inspect any files to supplement
+the result. If the result has `rejected: true`, answer with the
 `rejection_reason`.
 
 Final answer rules:

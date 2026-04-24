@@ -27,8 +27,8 @@ func TestStoreInitializesEmptyConfig(t *testing.T) {
 	if err != nil {
 		t.Fatalf("RuntimeConfig: %v", err)
 	}
-	if runtimeConfig["configuration_version"] != "v1" {
-		t.Fatalf("configuration_version = %q, want v1", runtimeConfig["configuration_version"])
+	if runtimeConfig["configuration_version"] != "v2" {
+		t.Fatalf("configuration_version = %q, want v2", runtimeConfig["configuration_version"])
 	}
 }
 
@@ -56,6 +56,9 @@ func TestReplaceSourcesValidatesAndStores(t *testing.T) {
 	}
 	if len(sources) != 1 || sources[0].Key != "example" {
 		t.Fatalf("sources = %+v", sources)
+	}
+	if sources[0].URLCanonicalization != URLCanonicalizationNone || sources[0].OutletExtraction != OutletExtractionNone {
+		t.Fatalf("source defaults = %+v", sources[0])
 	}
 	if _, err := store.ReplaceSources(ctx, []Source{{Key: "Bad/Key"}}); err == nil {
 		t.Fatal("ReplaceSources invalid source succeeded")
@@ -94,5 +97,42 @@ func TestOutletPoliciesRoundTrip(t *testing.T) {
 	}
 	if len(policies) != 1 || len(policies[0].Aliases) != 1 || policies[0].Policy != "watch" {
 		t.Fatalf("policies = %+v", policies)
+	}
+}
+
+func TestReplaceSourcesStoresGenericProcessingFields(t *testing.T) {
+	ctx := context.Background()
+	store, err := New(ctx, Config{DatabasePath: filepath.Join(t.TempDir(), "openbrief.sqlite")})
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	defer func() {
+		_ = store.Close()
+	}()
+
+	sources, err := store.ReplaceSources(ctx, []Source{{
+		Key:                 "news",
+		Label:               "News",
+		Kind:                SourceKindRSS,
+		URL:                 "https://example.com/feed.xml",
+		Section:             "technology",
+		Threshold:           ThresholdMedium,
+		Enabled:             true,
+		URLCanonicalization: URLCanonicalizationFeedBurnerRedirect,
+		OutletExtraction:    OutletExtractionTitleSuffix,
+		DedupGroup:          "front-page",
+		PriorityRank:        3,
+		AlwaysReport:        true,
+	}})
+	if err != nil {
+		t.Fatalf("ReplaceSources: %v", err)
+	}
+	got := sources[0]
+	if got.URLCanonicalization != URLCanonicalizationFeedBurnerRedirect ||
+		got.OutletExtraction != OutletExtractionTitleSuffix ||
+		got.DedupGroup != "front-page" ||
+		got.PriorityRank != 3 ||
+		!got.AlwaysReport {
+		t.Fatalf("source = %+v", got)
 	}
 }

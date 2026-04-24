@@ -27,6 +27,11 @@ delivery records, or run history. A fresh database contains only schema and
 runtime defaults. Operators configure sources through `openbrief config` or by
 preparing a host database outside this repository.
 
+Configuration version `v2` adds generic feed-processing fields to sources:
+URL canonicalization, outlet extraction, dedup group, priority rank, and
+always-report behavior. These are generic source settings; they do not embed any
+operator feed inventory.
+
 ## Consequences
 
 - The shipped artifact can be public without private brief data.

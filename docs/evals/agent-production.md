@@ -14,6 +14,10 @@ Initial scenarios should cover:
 - `record_delivery` suppresses exact recent URL or title repeats
 - feed failure creates a health footnote
 - feed recovery resolves the health warning
+- configured feed URL canonicalization rewrites feed item URLs through runner
+  JSON without adding provider-specific source types
+- outlet policy suppression and watch audit behavior
+- same-run topic deduplication and 24-hour recent topic suppression
 - invalid source config rejects through runner JSON
 - routine agent does not inspect SQLite, source files, `.openclaw`, workspace
   backups, or repo files

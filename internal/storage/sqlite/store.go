@@ -28,6 +28,14 @@ const (
 	ThresholdMedium = "medium"
 	ThresholdHigh   = "high"
 	ThresholdAudit  = "audit"
+
+	URLCanonicalizationNone               = "none"
+	URLCanonicalizationFeedBurnerRedirect = "feedburner_redirect"
+	URLCanonicalizationGoogleNewsArticle  = "google_news_article_url"
+
+	OutletExtractionNone        = "none"
+	OutletExtractionTitleSuffix = "title_suffix"
+	OutletExtractionURLHost     = "url_host"
 )
 
 var (
@@ -45,14 +53,19 @@ type Store struct {
 }
 
 type Source struct {
-	Key       string `json:"key"`
-	Label     string `json:"label"`
-	Kind      string `json:"kind"`
-	URL       string `json:"url,omitempty"`
-	Repo      string `json:"repo,omitempty"`
-	Section   string `json:"section"`
-	Threshold string `json:"threshold"`
-	Enabled   bool   `json:"enabled"`
+	Key                 string `json:"key"`
+	Label               string `json:"label"`
+	Kind                string `json:"kind"`
+	URL                 string `json:"url,omitempty"`
+	Repo                string `json:"repo,omitempty"`
+	Section             string `json:"section"`
+	Threshold           string `json:"threshold"`
+	Enabled             bool   `json:"enabled"`
+	URLCanonicalization string `json:"url_canonicalization,omitempty"`
+	OutletExtraction    string `json:"outlet_extraction,omitempty"`
+	DedupGroup          string `json:"dedup_group,omitempty"`
+	PriorityRank        int    `json:"priority_rank,omitempty"`
+	AlwaysReport        bool   `json:"always_report,omitempty"`
 }
 
 type OutletPolicy struct {
@@ -79,6 +92,7 @@ type FetchLog struct {
 	Error        string
 	ItemCount    int
 	NewItemCount int
+	CreatedAt    time.Time
 }
 
 type HealthDelta struct {
@@ -159,6 +173,11 @@ func (s *Store) initSchema(ctx context.Context) error {
 			section TEXT NOT NULL,
 			threshold TEXT NOT NULL,
 			enabled INTEGER NOT NULL,
+			url_canonicalization TEXT NOT NULL DEFAULT 'none',
+			outlet_extraction TEXT NOT NULL DEFAULT 'none',
+			dedup_group TEXT NOT NULL DEFAULT '',
+			priority_rank INTEGER NOT NULL DEFAULT 0,
+			always_report INTEGER NOT NULL DEFAULT 0,
 			created_at TEXT NOT NULL,
 			updated_at TEXT NOT NULL
 		);`,
@@ -231,9 +250,69 @@ func (s *Store) initSchema(ctx context.Context) error {
 	now := s.now().Format(time.RFC3339Nano)
 	if _, err := s.db.ExecContext(ctx, `
 INSERT INTO runtime_config (key_name, value_text, updated_at)
-VALUES ('configuration_version', 'v1', ?)
+VALUES ('configuration_version', 'v2', ?)
 ON CONFLICT(key_name) DO NOTHING`, now); err != nil {
 		return fmt.Errorf("initialize runtime config: %w", err)
+	}
+	if err := s.migrateSchema(ctx); err != nil {
+		return err
+	}
+	return nil
+}
+
+func (s *Store) migrateSchema(ctx context.Context) error {
+	for _, column := range []struct {
+		name string
+		def  string
+	}{
+		{name: "url_canonicalization", def: "TEXT NOT NULL DEFAULT 'none'"},
+		{name: "outlet_extraction", def: "TEXT NOT NULL DEFAULT 'none'"},
+		{name: "dedup_group", def: "TEXT NOT NULL DEFAULT ''"},
+		{name: "priority_rank", def: "INTEGER NOT NULL DEFAULT 0"},
+		{name: "always_report", def: "INTEGER NOT NULL DEFAULT 0"},
+	} {
+		if err := s.ensureColumn(ctx, "brief_source", column.name, column.def); err != nil {
+			return err
+		}
+	}
+	now := s.now().Format(time.RFC3339Nano)
+	if _, err := s.db.ExecContext(ctx, `
+INSERT INTO runtime_config (key_name, value_text, updated_at)
+VALUES ('configuration_version', 'v2', ?)
+ON CONFLICT(key_name) DO UPDATE SET
+	value_text = 'v2',
+	updated_at = excluded.updated_at`, now); err != nil {
+		return fmt.Errorf("migrate runtime config: %w", err)
+	}
+	return nil
+}
+
+func (s *Store) ensureColumn(ctx context.Context, table string, name string, definition string) error {
+	rows, err := s.db.QueryContext(ctx, `PRAGMA table_info(`+table+`)`)
+	if err != nil {
+		return fmt.Errorf("inspect %s columns: %w", table, err)
+	}
+	defer func() {
+		_ = rows.Close()
+	}()
+	for rows.Next() {
+		var cid int
+		var columnName, columnType string
+		var notNull int
+		var defaultValue any
+		var pk int
+		if err := rows.Scan(&cid, &columnName, &columnType, &notNull, &defaultValue, &pk); err != nil {
+			return err
+		}
+		if columnName == name {
+			return rows.Err()
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return err
+	}
+	if _, err := s.db.ExecContext(ctx, fmt.Sprintf(`ALTER TABLE %s ADD COLUMN %s %s`, table, name, definition)); err != nil {
+		return fmt.Errorf("add %s.%s: %w", table, name, err)
 	}
 	return nil
 }
@@ -257,8 +336,22 @@ func (s *Store) RuntimeConfig(ctx context.Context) (map[string]string, error) {
 	return values, rows.Err()
 }
 
+func (s *Store) SetRuntimeConfig(ctx context.Context, key string, value string) error {
+	key = strings.TrimSpace(key)
+	if key == "" {
+		return errors.New("runtime config key is required")
+	}
+	_, err := s.db.ExecContext(ctx, `
+INSERT INTO runtime_config (key_name, value_text, updated_at)
+VALUES (?, ?, ?)
+ON CONFLICT(key_name) DO UPDATE SET
+	value_text = excluded.value_text,
+	updated_at = excluded.updated_at`, key, value, s.now().Format(time.RFC3339Nano))
+	return err
+}
+
 func (s *Store) ListSources(ctx context.Context, enabledOnly bool) ([]Source, error) {
-	query := `SELECT key, label, kind, url, repo, section, threshold, enabled FROM brief_source`
+	query := `SELECT key, label, kind, url, repo, section, threshold, enabled, url_canonicalization, outlet_extraction, dedup_group, priority_rank, always_report FROM brief_source`
 	if enabledOnly {
 		query += ` WHERE enabled = 1`
 	}
@@ -274,10 +367,26 @@ func (s *Store) ListSources(ctx context.Context, enabledOnly bool) ([]Source, er
 	for rows.Next() {
 		var source Source
 		var enabled int
-		if err := rows.Scan(&source.Key, &source.Label, &source.Kind, &source.URL, &source.Repo, &source.Section, &source.Threshold, &enabled); err != nil {
+		var alwaysReport int
+		if err := rows.Scan(
+			&source.Key,
+			&source.Label,
+			&source.Kind,
+			&source.URL,
+			&source.Repo,
+			&source.Section,
+			&source.Threshold,
+			&enabled,
+			&source.URLCanonicalization,
+			&source.OutletExtraction,
+			&source.DedupGroup,
+			&source.PriorityRank,
+			&alwaysReport,
+		); err != nil {
 			return nil, err
 		}
 		source.Enabled = enabled == 1
+		source.AlwaysReport = alwaysReport == 1
 		sources = append(sources, source)
 	}
 	return sources, rows.Err()
@@ -339,8 +448,8 @@ func (s *Store) DeleteSource(ctx context.Context, key string) error {
 func upsertSourceTx(ctx context.Context, tx *sql.Tx, source Source, now time.Time) error {
 	ts := now.Format(time.RFC3339Nano)
 	_, err := tx.ExecContext(ctx, `
-INSERT INTO brief_source (key, label, kind, url, repo, section, threshold, enabled, created_at, updated_at)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+INSERT INTO brief_source (key, label, kind, url, repo, section, threshold, enabled, url_canonicalization, outlet_extraction, dedup_group, priority_rank, always_report, created_at, updated_at)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 ON CONFLICT(key) DO UPDATE SET
 	label = excluded.label,
 	kind = excluded.kind,
@@ -349,8 +458,28 @@ ON CONFLICT(key) DO UPDATE SET
 	section = excluded.section,
 	threshold = excluded.threshold,
 	enabled = excluded.enabled,
+	url_canonicalization = excluded.url_canonicalization,
+	outlet_extraction = excluded.outlet_extraction,
+	dedup_group = excluded.dedup_group,
+	priority_rank = excluded.priority_rank,
+	always_report = excluded.always_report,
 	updated_at = excluded.updated_at`,
-		source.Key, source.Label, source.Kind, source.URL, source.Repo, source.Section, source.Threshold, boolInt(source.Enabled), ts, ts)
+		source.Key,
+		source.Label,
+		source.Kind,
+		source.URL,
+		source.Repo,
+		source.Section,
+		source.Threshold,
+		boolInt(source.Enabled),
+		source.URLCanonicalization,
+		source.OutletExtraction,
+		source.DedupGroup,
+		source.PriorityRank,
+		boolInt(source.AlwaysReport),
+		ts,
+		ts,
+	)
 	return err
 }
 
@@ -379,6 +508,9 @@ func NormalizeSource(source Source) (Source, error) {
 	source.Repo = strings.TrimSpace(source.Repo)
 	source.Section = strings.TrimSpace(strings.ToLower(source.Section))
 	source.Threshold = strings.TrimSpace(strings.ToLower(source.Threshold))
+	source.URLCanonicalization = strings.TrimSpace(strings.ToLower(source.URLCanonicalization))
+	source.OutletExtraction = strings.TrimSpace(strings.ToLower(source.OutletExtraction))
+	source.DedupGroup = strings.TrimSpace(strings.ToLower(source.DedupGroup))
 	if source.Key == "" || !sourceKeyPattern.MatchString(source.Key) {
 		return Source{}, errors.New("source key must be lowercase letters, numbers, dot, underscore, or hyphen")
 	}
@@ -391,10 +523,26 @@ func NormalizeSource(source Source) (Source, error) {
 	if source.Threshold == "" {
 		source.Threshold = ThresholdMedium
 	}
+	if source.URLCanonicalization == "" {
+		source.URLCanonicalization = URLCanonicalizationNone
+	}
+	if source.OutletExtraction == "" {
+		source.OutletExtraction = OutletExtractionNone
+	}
 	switch source.Threshold {
 	case ThresholdAlways, ThresholdMedium, ThresholdHigh, ThresholdAudit:
 	default:
 		return Source{}, fmt.Errorf("source %q threshold must be always, medium, high, or audit", source.Key)
+	}
+	switch source.URLCanonicalization {
+	case URLCanonicalizationNone, URLCanonicalizationFeedBurnerRedirect, URLCanonicalizationGoogleNewsArticle:
+	default:
+		return Source{}, fmt.Errorf("source %q url_canonicalization must be none, feedburner_redirect, or google_news_article_url", source.Key)
+	}
+	switch source.OutletExtraction {
+	case OutletExtractionNone, OutletExtractionTitleSuffix, OutletExtractionURLHost:
+	default:
+		return Source{}, fmt.Errorf("source %q outlet_extraction must be none, title_suffix, or url_host", source.Key)
 	}
 	switch source.Kind {
 	case SourceKindRSS, SourceKindAtom:
@@ -582,11 +730,49 @@ UPDATE brief_run SET finished_at = ?, status = ?, summary = ? WHERE id = ?`,
 }
 
 func (s *Store) InsertFetchLog(ctx context.Context, log FetchLog) error {
+	createdAt := log.CreatedAt
+	if createdAt.IsZero() {
+		createdAt = s.now()
+	}
 	_, err := s.db.ExecContext(ctx, `
 INSERT INTO fetch_log (run_id, source_key, status, error, item_count, new_item_count, created_at)
 VALUES (?, ?, ?, ?, ?, ?, ?)`,
-		log.RunID, log.SourceKey, log.Status, log.Error, log.ItemCount, log.NewItemCount, s.now().Format(time.RFC3339Nano))
+		log.RunID, log.SourceKey, log.Status, log.Error, log.ItemCount, log.NewItemCount, createdAt.UTC().Format(time.RFC3339Nano))
 	return err
+}
+
+func (s *Store) RecentFetchLogs(ctx context.Context, limit int) ([]FetchLog, error) {
+	if limit <= 0 {
+		limit = 200
+	}
+	rows, err := s.db.QueryContext(ctx, `
+SELECT run_id, source_key, status, error, item_count, new_item_count, created_at
+FROM fetch_log
+ORDER BY id DESC
+LIMIT ?`, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer func() {
+		_ = rows.Close()
+	}()
+	var logs []FetchLog
+	for rows.Next() {
+		var log FetchLog
+		var createdAt string
+		if err := rows.Scan(&log.RunID, &log.SourceKey, &log.Status, &log.Error, &log.ItemCount, &log.NewItemCount, &createdAt); err != nil {
+			return nil, err
+		}
+		log.CreatedAt, _ = time.Parse(time.RFC3339Nano, createdAt)
+		logs = append(logs, log)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	for i, j := 0, len(logs)-1; i < j; i, j = i+1, j-1 {
+		logs[i], logs[j] = logs[j], logs[i]
+	}
+	return logs, nil
 }
 
 func (s *Store) HealthDelta(ctx context.Context, current map[string]string, mutate bool) (HealthDelta, error) {
