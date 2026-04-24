@@ -48,3 +48,22 @@ func TestResolvePathsUsesXDGDefault(t *testing.T) {
 		t.Fatalf("DatabasePath = %q, want %q", paths.DatabasePath, want)
 	}
 }
+
+func TestResolvePathsIgnoresRetiredDataDirEnv(t *testing.T) {
+	xdg := filepath.Join(t.TempDir(), "xdg")
+	t.Setenv(EnvDatabasePath, "")
+	t.Setenv("OPENBRIEF_DATA_DIR", filepath.Join(t.TempDir(), "retired-data-dir"))
+	t.Setenv("XDG_DATA_HOME", xdg)
+
+	paths, err := ResolvePaths(Config{})
+	if err != nil {
+		t.Fatalf("ResolvePaths: %v", err)
+	}
+	want := filepath.Join(xdg, "openbrief", "openbrief.sqlite")
+	if paths.DatabasePath != want {
+		t.Fatalf("DatabasePath = %q, want %q", paths.DatabasePath, want)
+	}
+	if paths.DataDir != filepath.Dir(want) {
+		t.Fatalf("DataDir = %q, want %q", paths.DataDir, filepath.Dir(want))
+	}
+}
