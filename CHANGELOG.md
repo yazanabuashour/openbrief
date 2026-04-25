@@ -5,6 +5,10 @@ published with GitHub Releases and mirrored in `docs/release-notes/`.
 
 ## Releases
 
+- [v0.1.2](https://github.com/yazanabuashour/openbrief/releases/tag/v0.1.2)
+  allows user-directed legacy automation/config migration through a reviewed
+  draft-and-apply OpenBrief skill workflow and hardens skill markdown
+  validation tests without changing runner behavior.
 - [v0.1.1](https://github.com/yazanabuashour/openbrief/releases/tag/v0.1.1)
   refines the public OpenBrief skill display name and production runner-bypass
   refusal policy without changing runner behavior.
@@ -12,6 +16,3 @@ published with GitHub Releases and mirrored in `docs/release-notes/`.
   is the first public release of the local-first OpenBrief runner and skill.
 
 ## Unreleased
-
-- Allow user-directed legacy automation/config migration through a reviewed
-  draft-and-apply OpenBrief skill workflow.

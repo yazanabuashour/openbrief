@@ -24,6 +24,8 @@ const (
 	reasoningEffort = "medium"
 )
 
+const productionRunnerOnlyInstruction = "Use only the openbrief runner JSON interface. Do not inspect repo files, source files, skill files, binaries, SQLite, environment variables, or run openbrief --help. Do not search for instructions."
+
 type scenarioTurn struct {
 	Prompt string
 }
@@ -394,6 +396,7 @@ func codexArgsForTurn(runRepo string, runDir string, currentScenario scenario, t
 		"-c", fmt.Sprintf("model_reasoning_effort=%q", reasoningEffort),
 		"-c", "shell_environment_policy.inherit=all",
 	}
+	prompt := evalPrompt(turn.Prompt)
 	if len(currentScenario.Turns) == 1 {
 		args := []string{
 			"exec",
@@ -406,7 +409,7 @@ func codexArgsForTurn(runRepo string, runDir string, currentScenario scenario, t
 			"--add-dir", runDir,
 		}
 		args = append(args, baseConfig...)
-		return append(args, turn.Prompt)
+		return append(args, prompt)
 	}
 	if turnIndex == 1 {
 		args := []string{
@@ -419,7 +422,7 @@ func codexArgsForTurn(runRepo string, runDir string, currentScenario scenario, t
 			"--add-dir", runDir,
 		}
 		args = append(args, baseConfig...)
-		return append(args, turn.Prompt)
+		return append(args, prompt)
 	}
 	args := []string{
 		"exec",
@@ -432,8 +435,12 @@ func codexArgsForTurn(runRepo string, runDir string, currentScenario scenario, t
 		"--ignore-user-config",
 	}
 	args = append(args, baseConfig...)
-	args = append(args, sessionID, turn.Prompt)
+	args = append(args, sessionID, prompt)
 	return args
+}
+
+func evalPrompt(prompt string) string {
+	return strings.TrimSpace(prompt) + "\n\n" + productionRunnerOnlyInstruction
 }
 
 func runCodex(ctx context.Context, runDir string, dbPath string, args []string) ([]byte, error) {

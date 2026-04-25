@@ -187,6 +187,9 @@ func TestCodexArgsRequireIgnoreUserConfig(t *testing.T) {
 	if !containsArg(singleArgs, "--ignore-user-config") {
 		t.Fatalf("single args missing --ignore-user-config: %v", singleArgs)
 	}
+	if !strings.Contains(singleArgs[len(singleArgs)-1], productionRunnerOnlyInstruction) {
+		t.Fatalf("single prompt missing production instruction: %v", singleArgs)
+	}
 
 	multi := scenario{ID: "multi", Turns: []scenarioTurn{{Prompt: "first"}, {Prompt: "second"}}}
 	firstArgs := codexArgsForTurn("run-root/multi/repo", "run-root/multi", multi, multi.Turns[0], 1, "")
@@ -204,8 +207,12 @@ func TestCodexArgsRequireIgnoreUserConfig(t *testing.T) {
 	if !containsArg(resumeArgs, "--ignore-user-config") {
 		t.Fatalf("resume args missing --ignore-user-config: %v", resumeArgs)
 	}
-	if resumeArgs[len(resumeArgs)-2] != "session-123" || resumeArgs[len(resumeArgs)-1] != "second" {
+	if resumeArgs[len(resumeArgs)-2] != "session-123" {
 		t.Fatalf("resume args must end with session id and prompt: %v", resumeArgs)
+	}
+	if !strings.HasPrefix(resumeArgs[len(resumeArgs)-1], "second\n\n") ||
+		!strings.Contains(resumeArgs[len(resumeArgs)-1], productionRunnerOnlyInstruction) {
+		t.Fatalf("resume prompt missing production instruction: %v", resumeArgs)
 	}
 }
 
