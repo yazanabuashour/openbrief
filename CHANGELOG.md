@@ -13,4 +13,5 @@ published with GitHub Releases and mirrored in `docs/release-notes/`.
 
 ## Unreleased
 
-No unreleased changes.
+- Allow user-directed legacy automation/config migration through a reviewed
+  draft-and-apply OpenBrief skill workflow.

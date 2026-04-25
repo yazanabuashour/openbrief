@@ -30,10 +30,12 @@ delivery records, or run history. A fresh database contains only schema and
 runtime defaults. Operators configure sources through `openbrief config` or by
 preparing a host database outside this repository.
 
-Private historical artifacts are not authoritative production configuration.
-Recovering or importing personal source inventories, outlet policies, delivery
-history, or run state remains unsupported until the runner provides an explicit
-import path.
+Private historical artifacts are not automatically authoritative production
+configuration. When an operator explicitly points to legacy automation or config
+input, agents may inspect only the named input, draft sources and outlet
+policies for review, and apply approved changes through `openbrief config`.
+Delivery history, latest-seen state, and run state remain unsupported until the
+runner provides an explicit import path.
 
 Configuration version `v2` adds generic feed-processing fields to sources:
 URL canonicalization, outlet extraction, dedup group, priority rank, and
@@ -46,5 +48,6 @@ operator feed inventory.
 - Routine production agents use runner JSON results instead of reading files.
 - Local operators can keep private configuration in host storage.
 - Repo development and migration design can inspect public repository files.
-- Import/migration from legacy personal workflows is outside the repository
-  until it is implemented as a runner-backed feature.
+- User-directed legacy migration can draft reviewed sources and outlet policies.
+- Operational state import remains outside the repository until it is
+  implemented as a runner-backed feature.

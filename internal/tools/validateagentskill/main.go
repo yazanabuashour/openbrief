@@ -178,7 +178,12 @@ func validateRunnerContract(skillFile string, content string) error {
 		"directly as a substitute for runner JSON",
 		"Allowed Contexts",
 		"migration design may inspect repository files",
-		"private source inventory, paywall policy, delivery",
+		"Legacy Migration",
+		"user explicitly points to",
+		"draft OpenBrief sources and outlet policies",
+		"apply only after approval",
+		"delivery history, latest-seen state, run state",
+		"inferred private configuration without user review",
 	}
 	for _, want := range required {
 		if !strings.Contains(content, want) {
@@ -242,6 +247,10 @@ func validateForbiddenGuidance(skillFile string, content string) error {
 		"Generated Client Fallback",
 		"inspect source files, generated files, repo files",
 		"workspace backups, private run logs, or legacy brief scripts",
+		"recovery/import from private historical artifacts",
+		"recover, infer, or import private source inventory",
+		"Private artifacts must not be used as authoritative production configuration",
+		"Do not infer or recover them from private backups or old personal files",
 	}
 	for _, forbidden := range forbiddenSubstrings {
 		if strings.Contains(content, forbidden) {
