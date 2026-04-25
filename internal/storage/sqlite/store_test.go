@@ -74,6 +74,29 @@ func TestReplaceSourcesValidatesAndStores(t *testing.T) {
 	}}); err == nil {
 		t.Fatal("ReplaceSources invalid GitHub repo succeeded")
 	}
+	if _, err := store.ReplaceSources(ctx, []Source{{
+		Key:       "file-feed",
+		Label:     "File Feed",
+		Kind:      SourceKindRSS,
+		URL:       "file:///tmp/openbrief-feed.xml",
+		Section:   "technology",
+		Threshold: ThresholdMedium,
+		Enabled:   true,
+	}}); err == nil {
+		t.Fatal("ReplaceSources file feed succeeded")
+	}
+	t.Setenv("OPENBRIEF_EVAL_ALLOW_FILE_URLS", "1")
+	if _, err := store.ReplaceSources(ctx, []Source{{
+		Key:       "file-feed",
+		Label:     "File Feed",
+		Kind:      SourceKindRSS,
+		URL:       "file:///tmp/openbrief-feed.xml",
+		Section:   "technology",
+		Threshold: ThresholdMedium,
+		Enabled:   true,
+	}}); err != nil {
+		t.Fatalf("ReplaceSources eval file feed: %v", err)
+	}
 }
 
 func TestOutletPoliciesRoundTrip(t *testing.T) {

@@ -100,13 +100,15 @@ config-file environment variables, or repo-local state files.
 
 ## Development
 
-Use the local toolchain for repository development:
+Use the repo-pinned local toolchain for repository development:
 
 ```bash
 mise install
-mise exec -- go test ./...
 mise exec -- gofmt -w .
+mise exec -- golangci-lint run
+mise exec -- go test ./...
 mise exec -- ./scripts/validate-agent-skill.sh skills/openbrief
+mise exec -- ./scripts/validate-release-docs.sh v0.1.0
 ```
 
 The production runner supports RSS/Atom feeds, GitHub releases, generic URL
@@ -116,10 +118,21 @@ their own feed URLs, outlet policies, priorities, and always-report choices in
 the host SQLite database; this repository does not seed personal sources or
 policies.
 
+## Eval Evidence
+
+The production runner/skill is gated by agent evals documented in
+[`docs/evals/agent-production.md`](docs/evals/agent-production.md). Current
+release evidence lives in
+[`docs/agent-eval-results/openbrief-v0.1.0-final.md`](docs/agent-eval-results/openbrief-v0.1.0-final.md).
+
 ## Releases
 
-Tagged releases are expected to publish platform binary archives, the skill
-archive, the installer, source archive, and SHA256 checksums.
+Tagged `v0.y.z` releases publish platform binary archives, the skill archive,
+the installer, source archive, SHA256 checksums, an SPDX SBOM, and GitHub
+attestations. Published release assets are intended to be immutable going
+forward. See
+[`docs/release-verification.md`](docs/release-verification.md) for verification
+steps.
 
 ## Contributing
 
@@ -128,4 +141,5 @@ Beads is maintainer-only workflow tooling and is not required for community
 contributions.
 
 See `CONTRIBUTING.md` for contribution expectations, `CODE_OF_CONDUCT.md` for
-community standards, and `SECURITY.md` for vulnerability reporting.
+community standards, `SECURITY.md` for vulnerability reporting, and
+`docs/maintainers.md` for maintainer-only workflow details.

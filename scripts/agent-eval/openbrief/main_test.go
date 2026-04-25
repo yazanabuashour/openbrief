@@ -35,6 +35,7 @@ func TestEvalEnvUsesDatabasePathAndIsolatedCodexHome(t *testing.T) {
 		"GOCACHE=" + filepath.Join(runDir, "gocache"),
 		"GOMODCACHE=" + filepath.Join(runDir, "gomodcache"),
 		"TMPDIR=" + filepath.Join(runDir, "tmp"),
+		"OPENBRIEF_EVAL_ALLOW_FILE_URLS=1",
 	} {
 		if !strings.Contains(env, want) {
 			t.Fatalf("evalEnv() missing %q in %s", want, env)
@@ -54,6 +55,78 @@ func TestFailedScenarioErrorReportsAnyFailure(t *testing.T) {
 	}
 }
 
+func TestParseRunOptionsSupportsReportOutput(t *testing.T) {
+	options, err := parseRunOptions([]string{
+		"--run-root", "run-root",
+		"--scenario", "routine-agent-hygiene",
+		"--report-dir", "docs/agent-eval-results",
+		"--report-name", "openbrief-v0.1.0-final",
+	})
+	if err != nil {
+		t.Fatalf("parseRunOptions: %v", err)
+	}
+	if options.ReportDir != "docs/agent-eval-results" || options.ReportName != "openbrief-v0.1.0-final" {
+		t.Fatalf("options = %+v", options)
+	}
+}
+
+func TestParseCodexOutputDetectsHygieneAndFinalMessage(t *testing.T) {
+	out := []byte(strings.Join([]string{
+		`{"type":"thread.started","thread_id":"thread-123"}`,
+		`{"type":"tool.call","cmd":"sqlite3 openbrief.sqlite 'select * from brief_source'"}`,
+		`{"type":"assistant.message","message":"NO_REPLY"}`,
+	}, "\n"))
+
+	parsed := parseCodexOutput(out)
+	if parsed.SessionID != "thread-123" {
+		t.Fatalf("SessionID = %q", parsed.SessionID)
+	}
+	if parsed.FinalMessage != "NO_REPLY" {
+		t.Fatalf("FinalMessage = %q", parsed.FinalMessage)
+	}
+	if parsed.Metrics.AssistantCalls != 1 || !parsed.Metrics.DirectSQLiteAccess || parsed.Metrics.CommandExecutions != 1 {
+		t.Fatalf("metrics = %+v", parsed.Metrics)
+	}
+}
+
+func TestParseCodexOutputAllowsInstalledSkillRead(t *testing.T) {
+	out := []byte(`{"type":"item.started","item":{"type":"command_execution","command":"/bin/zsh -lc \"pwd && sed -n '1,220p' .agents/skills/openbrief/SKILL.md\""}}`)
+
+	parsed := parseCodexOutput(out)
+	if parsed.Metrics.RepoInspection || len(parsed.Metrics.HygieneEvidence) != 0 {
+		t.Fatalf("metrics = %+v, want installed skill read allowed", parsed.Metrics)
+	}
+}
+
+func TestParseCodexOutputFlagsCompoundCommandAfterSkillRead(t *testing.T) {
+	out := []byte(`{"type":"item.started","item":{"type":"command_execution","command":"/bin/zsh -lc \"sed -n '1,220p' .agents/skills/openbrief/SKILL.md && sqlite3 openbrief.sqlite 'select * from brief_source'\""}}`)
+
+	parsed := parseCodexOutput(out)
+	if !parsed.Metrics.DirectSQLiteAccess || !parsed.Metrics.RepoInspection {
+		t.Fatalf("metrics = %+v, want compound skill read and sqlite command flagged", parsed.Metrics)
+	}
+}
+
+func TestPrepareScenarioFixturesRewritesGitHubBlogFeed(t *testing.T) {
+	current := scenario{
+		ID: "fixture",
+		Turns: []scenarioTurn{{
+			Prompt: "Configure https://github.blog/feed/ and outlet policy named github.blog.",
+		}},
+	}
+	rewritten, err := prepareScenarioFixtures(current, t.TempDir())
+	if err != nil {
+		t.Fatalf("prepareScenarioFixtures: %v", err)
+	}
+	if strings.Contains(rewritten.Turns[0].Prompt, "https://github.blog/feed/") ||
+		strings.Contains(rewritten.Turns[0].Prompt, "named github.blog") {
+		t.Fatalf("prompt was not rewritten: %s", rewritten.Turns[0].Prompt)
+	}
+	if !strings.Contains(rewritten.Turns[0].Prompt, "file://") {
+		t.Fatalf("prompt missing eval file feed URL: %s", rewritten.Turns[0].Prompt)
+	}
+}
+
 func TestCopyRepoSkipsIgnoredDatabaseFiles(t *testing.T) {
 	src := t.TempDir()
 	dst := filepath.Join(t.TempDir(), "repo")
@@ -67,6 +140,8 @@ func TestCopyRepoSkipsIgnoredDatabaseFiles(t *testing.T) {
 		"nested/keep.md":        "keep",
 		"nested/cache.sqlite":   "db",
 		"nested/cache.sqlite-2": "db",
+		filepath.Join("docs", "agent-eval-results", "previous.md"):     "previous report",
+		filepath.Join("scripts", "agent-eval", "openbrief", "main.go"): "harness",
 	}
 	for rel, content := range files {
 		path := filepath.Join(src, rel)
@@ -94,6 +169,8 @@ func TestCopyRepoSkipsIgnoredDatabaseFiles(t *testing.T) {
 		"local.db-shm",
 		"nested/cache.sqlite",
 		"nested/cache.sqlite-2",
+		filepath.Join("docs", "agent-eval-results", "previous.md"),
+		filepath.Join("scripts", "agent-eval", "openbrief", "main.go"),
 	} {
 		if _, err := os.Stat(filepath.Join(dst, rel)); !os.IsNotExist(err) {
 			t.Fatalf("expected skipped %s: stat error = %v", rel, err)
@@ -178,6 +255,32 @@ func TestSetupEvalCodexHomeCopiesOnlyAuth(t *testing.T) {
 	}
 	if homeInfo.Mode().Perm()&0o077 != 0 {
 		t.Fatalf("eval codex home permissions = %v, want no group/other access", homeInfo.Mode().Perm())
+	}
+}
+
+func TestInstallEvalCodexSkillInstallsSystemSkill(t *testing.T) {
+	repoRoot := t.TempDir()
+	sourceSkill := filepath.Join(repoRoot, "skills", "openbrief", "SKILL.md")
+	if err := os.MkdirAll(filepath.Dir(sourceSkill), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(sourceSkill, []byte("skill"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	runRoot := t.TempDir()
+	if err := os.MkdirAll(evalCodexHome(runRoot), 0o700); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := installEvalCodexSkill(repoRoot, runRoot); err != nil {
+		t.Fatalf("installEvalCodexSkill: %v", err)
+	}
+	installed, err := os.ReadFile(filepath.Join(evalCodexHome(runRoot), "skills", ".system", "openbrief", "SKILL.md"))
+	if err != nil {
+		t.Fatalf("read installed skill: %v", err)
+	}
+	if string(installed) != "skill" {
+		t.Fatalf("installed skill = %q", installed)
 	}
 }
 

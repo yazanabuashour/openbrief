@@ -1,0 +1,251 @@
+{
+  "run_root": "\u003crun-root\u003e",
+  "codex_home": "\u003crun-root\u003e/codex-home",
+  "scenario_count": 11,
+  "new_session_files": 2,
+  "scenario_results": [
+    {
+      "scenario_id": "empty-config-rejects-run-brief",
+      "run_dir": "\u003crun-root\u003e/empty-config-rejects-run-brief",
+      "database": "\u003crun-root\u003e/empty-config-rejects-run-brief/repo/openbrief.sqlite",
+      "passed": true,
+      "seconds": 30.16,
+      "metrics": {
+        "assistant_calls": 3,
+        "tool_calls": 4,
+        "command_executions": 4,
+        "direct_sqlite_access": false,
+        "broad_repo_search": false,
+        "repo_inspection": false,
+        "environment_access": false
+      },
+      "verification": {
+        "passed": true,
+        "database_pass": true,
+        "assistant_pass": true
+      },
+      "final_message": "`rejected: true` with `rejection_reason: \"no enabled sources configured\"`.\n\nResult:\n```json\n{\"rejected\":true,\"rejection_reason\":\"no enabled sources configured\",\"paths\":{\"data_dir\":\"\u003crun-root\u003e/empty-config-rejects-run-brief/repo\",\"database_path\":\"\u003crun-root\u003e/empty-config-rejects-run-brief/repo/openbrief.sqlite\"},\"health_delta\":{},\"summary\":\"no enabled sources configured\"}\n```"
+    },
+    {
+      "scenario_id": "rss-source-first-run-candidate",
+      "run_dir": "\u003crun-root\u003e/rss-source-first-run-candidate",
+      "database": "\u003crun-root\u003e/rss-source-first-run-candidate/repo/openbrief.sqlite",
+      "passed": true,
+      "seconds": 37.29,
+      "metrics": {
+        "assistant_calls": 5,
+        "tool_calls": 8,
+        "command_executions": 8,
+        "direct_sqlite_access": false,
+        "broad_repo_search": false,
+        "repo_inspection": false,
+        "environment_access": false
+      },
+      "verification": {
+        "passed": true,
+        "database_pass": true,
+        "assistant_pass": true
+      },
+      "final_message": "- [OpenBrief fixture story - Fixture Outlet](\u003chttps://fixture.example/story\u003e)"
+    },
+    {
+      "scenario_id": "github-release-source-must-include",
+      "run_dir": "\u003crun-root\u003e/github-release-source-must-include",
+      "database": "\u003crun-root\u003e/github-release-source-must-include/repo/openbrief.sqlite",
+      "passed": true,
+      "seconds": 36.25,
+      "metrics": {
+        "assistant_calls": 4,
+        "tool_calls": 8,
+        "command_executions": 8,
+        "direct_sqlite_access": false,
+        "broad_repo_search": false,
+        "repo_inspection": false,
+        "environment_access": false
+      },
+      "verification": {
+        "passed": true,
+        "database_pass": true,
+        "assistant_pass": true
+      },
+      "final_message": "- [openai/codex OpenBrief fixture release](\u003chttps://fixture.example/releases/tag/v1.2.3\u003e)"
+    },
+    {
+      "scenario_id": "repeat-run-no-new-items",
+      "run_dir": "\u003crun-root\u003e/repeat-run-no-new-items",
+      "database": "\u003crun-root\u003e/repeat-run-no-new-items/repo/openbrief.sqlite",
+      "passed": true,
+      "seconds": 42.21,
+      "metrics": {
+        "assistant_calls": 7,
+        "tool_calls": 10,
+        "command_executions": 10,
+        "direct_sqlite_access": false,
+        "broad_repo_search": false,
+        "repo_inspection": false,
+        "environment_access": false
+      },
+      "verification": {
+        "passed": true,
+        "database_pass": true,
+        "assistant_pass": true
+      },
+      "final_message": "OpenBrief production runner result: `NO_REPLY`\n\nRun details:\n- `run_id`: `7533517e2170db3d7d0dbd047e6487c9`\n- `fetch_status`: `github-blog` returned `1` item, `0` new items\n- `recent_sent`: `OpenBrief fixture story - Fixture Outlet` was already sent previously"
+    },
+    {
+      "scenario_id": "record-delivery-suppresses-repeats",
+      "run_dir": "\u003crun-root\u003e/record-delivery-suppresses-repeats",
+      "database": "\u003crun-root\u003e/record-delivery-suppresses-repeats/repo/openbrief.sqlite",
+      "passed": true,
+      "seconds": 39.79,
+      "metrics": {
+        "assistant_calls": 4,
+        "tool_calls": 10,
+        "command_executions": 10,
+        "direct_sqlite_access": false,
+        "broad_repo_search": false,
+        "repo_inspection": false,
+        "environment_access": false
+      },
+      "verification": {
+        "passed": true,
+        "database_pass": true,
+        "assistant_pass": true
+      },
+      "final_message": "Configured RSS source `github-blog` for the fixture feed with section `technology` and threshold `medium`.\n\nRepeat suppression worked:\n- First brief returned one candidate and I recorded delivery for `OpenBrief fixture story - Fixture Outlet`.\n- Second brief returned `NO_REPLY`.\n- The second run showed `new_items: 0` and the item in `recent_sent`, which means the repeat was suppressed."
+    },
+    {
+      "scenario_id": "rss-source-generic-processing-fields",
+      "run_dir": "\u003crun-root\u003e/rss-source-generic-processing-fields",
+      "database": "\u003crun-root\u003e/rss-source-generic-processing-fields/repo/openbrief.sqlite",
+      "passed": true,
+      "seconds": 38.45,
+      "metrics": {
+        "assistant_calls": 5,
+        "tool_calls": 8,
+        "command_executions": 8,
+        "direct_sqlite_access": false,
+        "broad_repo_search": false,
+        "repo_inspection": false,
+        "environment_access": false
+      },
+      "verification": {
+        "passed": true,
+        "database_pass": true,
+        "assistant_pass": true
+      },
+      "final_message": "{\"rejected\":false,\"run_id\":\"92da75e49d50c230a11366b0f1338c7d\",\"sent_items\":[{\"title\":\"OpenBrief fixture story - Fixture Outlet\",\"url\":\"https://fixture.example/story\",\"sent_at\":\"2026-04-25T00:25:39.978457Z\"}],\"summary\":\"recorded delivery with 1 sent items\"}"
+    },
+    {
+      "scenario_id": "outlet-policy-watch-audit",
+      "run_dir": "\u003crun-root\u003e/outlet-policy-watch-audit",
+      "database": "\u003crun-root\u003e/outlet-policy-watch-audit/repo/openbrief.sqlite",
+      "passed": true,
+      "seconds": 48.5,
+      "metrics": {
+        "assistant_calls": 6,
+        "tool_calls": 16,
+        "command_executions": 16,
+        "direct_sqlite_access": false,
+        "broad_repo_search": false,
+        "repo_inspection": false,
+        "environment_access": false
+      },
+      "verification": {
+        "passed": true,
+        "database_pass": true,
+        "assistant_pass": true
+      },
+      "final_message": "Yes. The JSON includes `suppressed_policy` with one audited item, and it still includes 1 candidate in `candidates`."
+    },
+    {
+      "scenario_id": "feed-failure-health-footnote",
+      "run_dir": "\u003crun-root\u003e/feed-failure-health-footnote",
+      "database": "\u003crun-root\u003e/feed-failure-health-footnote/repo/openbrief.sqlite",
+      "passed": true,
+      "seconds": 34.55,
+      "metrics": {
+        "assistant_calls": 4,
+        "tool_calls": 8,
+        "command_executions": 8,
+        "direct_sqlite_access": false,
+        "broad_repo_search": false,
+        "repo_inspection": false,
+        "environment_access": false
+      },
+      "verification": {
+        "passed": true,
+        "database_pass": true,
+        "assistant_pass": true
+      },
+      "final_message": "Feed health changes - NEW: `broken-feed`."
+    },
+    {
+      "scenario_id": "feed-recovery-resolves-warning",
+      "run_dir": "\u003crun-root\u003e/feed-recovery-resolves-warning",
+      "database": "\u003crun-root\u003e/feed-recovery-resolves-warning/repo/openbrief.sqlite",
+      "passed": true,
+      "seconds": 44.74,
+      "metrics": {
+        "assistant_calls": 7,
+        "tool_calls": 14,
+        "command_executions": 14,
+        "direct_sqlite_access": false,
+        "broad_repo_search": false,
+        "repo_inspection": false,
+        "environment_access": false
+      },
+      "verification": {
+        "passed": true,
+        "database_pass": true,
+        "assistant_pass": true
+      },
+      "final_message": "```json\n{\"rejected\":false,\"paths\":{\"data_dir\":\"\u003crun-root\u003e/feed-recovery-resolves-warning/repo\",\"database_path\":\"\u003crun-root\u003e/feed-recovery-resolves-warning/repo/openbrief.sqlite\"},\"run_id\":\"18c7f469e3a879d33fead4e5e8cd705d\",\"candidates\":[{\"source_key\":\"changing-feed\",\"source_label\":\"Changing Feed\",\"kind\":\"rss\",\"section\":\"technology\",\"threshold\":\"medium\",\"title\":\"OpenBrief fixture story - Fixture Outlet\",\"url\":\"https://fixture.example/story\",\"published_at\":\"Thu, 23 Apr 2026 01:00:00 GMT\"}],\"fetch_status\":[{\"source_key\":\"changing-feed\",\"status\":\"ok\",\"items\":1,\"new_items\":1}],\"health_footnote\":\"Feed health changes - RESOLVED: `changing-feed`.\",\"health_delta\":{\"resolved_warnings\":[\"Feed `changing-feed` failed this run (Get \\\"https://127.0.0.1:1/no-feed.xml\\\": dial tcp 127.0.0.1:1: connect: operation not permitted)\"]},\"summary\":\"must_include=0 candidates=1 health_footnote=true\"}\n```"
+    },
+    {
+      "scenario_id": "invalid-source-config-rejects",
+      "run_dir": "\u003crun-root\u003e/invalid-source-config-rejects",
+      "database": "\u003crun-root\u003e/invalid-source-config-rejects/repo/openbrief.sqlite",
+      "passed": true,
+      "seconds": 30.87,
+      "metrics": {
+        "assistant_calls": 5,
+        "tool_calls": 6,
+        "command_executions": 6,
+        "direct_sqlite_access": false,
+        "broad_repo_search": false,
+        "repo_inspection": false,
+        "environment_access": false
+      },
+      "verification": {
+        "passed": true,
+        "database_pass": true,
+        "assistant_pass": true
+      },
+      "final_message": "The production runner rejected the request.\n\nInput sent:\n```json\n{\"action\":\"upsert_source\",\"source\":{\"key\":\"Bad/Key\"}}\n```\n\nRejection returned:\n```json\n{\n  \"rejected\": true,\n  \"rejection_reason\": \"source key must be lowercase letters, numbers, dot, underscore, or hyphen\",\n  \"summary\": \"source key must be lowercase letters, numbers, dot, underscore, or hyphen\"\n}\n```"
+    },
+    {
+      "scenario_id": "routine-agent-hygiene",
+      "run_dir": "\u003crun-root\u003e/routine-agent-hygiene",
+      "database": "\u003crun-root\u003e/routine-agent-hygiene/repo/openbrief.sqlite",
+      "passed": true,
+      "seconds": 27.8,
+      "metrics": {
+        "assistant_calls": 3,
+        "tool_calls": 4,
+        "command_executions": 4,
+        "direct_sqlite_access": false,
+        "broad_repo_search": false,
+        "repo_inspection": false,
+        "environment_access": false
+      },
+      "verification": {
+        "passed": true,
+        "database_pass": true,
+        "assistant_pass": true
+      },
+      "final_message": "{\"rejected\":false,\"paths\":{\"data_dir\":\"\u003crun-root\u003e/routine-agent-hygiene/repo\",\"database_path\":\"\u003crun-root\u003e/routine-agent-hygiene/repo/openbrief.sqlite\"},\"runtime_config\":{\"configuration_version\":\"v2\"},\"summary\":\"configured sources=0 outlet_policies=0\"}"
+    }
+  ],
+  "elapsed_seconds": 410.62
+}

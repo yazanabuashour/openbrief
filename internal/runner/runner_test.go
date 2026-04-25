@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -55,6 +56,34 @@ func TestRSSRunUpdatesStateAndRepeatNoReply(t *testing.T) {
 	}
 	if second.Summary != "NO_REPLY" || len(second.Candidates) != 0 {
 		t.Fatalf("second = %+v", second)
+	}
+}
+
+func TestEvalFileFeedRunUpdatesState(t *testing.T) {
+	t.Setenv("OPENBRIEF_EVAL_ALLOW_FILE_URLS", "1")
+	ctx := context.Background()
+	feedPath := filepath.Join(t.TempDir(), "feed.xml")
+	if err := os.WriteFile(feedPath, []byte(rssFixture("File item", "https://example.com/file", "file-guid")), 0o644); err != nil {
+		t.Fatalf("write feed fixture: %v", err)
+	}
+
+	cfg := testConfig(t)
+	configureSource(t, cfg, Source{
+		Key:       "file-feed",
+		Label:     "File Feed",
+		Kind:      sqlite.SourceKindRSS,
+		URL:       "file://" + feedPath,
+		Section:   "technology",
+		Threshold: sqlite.ThresholdMedium,
+		Enabled:   true,
+	})
+
+	result, err := RunBriefTask(ctx, cfg, BriefTaskRequest{Action: BriefActionRun})
+	if err != nil {
+		t.Fatalf("RunBriefTask: %v", err)
+	}
+	if result.Rejected || len(result.Candidates) != 1 || result.Candidates[0].Title != "File item" {
+		t.Fatalf("result = %+v", result)
 	}
 }
 
@@ -356,8 +385,7 @@ func TestURLHostOutletExtractionUsesCanonicalURL(t *testing.T) {
 }
 
 func TestGoogleNewsArticleURLResolverWithCustomEndpoints(t *testing.T) {
-	var server *httptest.Server
-	server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case "/articles/article-id":
 			_, _ = w.Write([]byte(`<c-wiz data-n-a-sg="signature" data-n-a-ts="1775407930"></c-wiz>`))

@@ -2,17 +2,21 @@ package main
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	"errors"
 	"flag"
 	"fmt"
 	"io"
 	"io/fs"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
 	"time"
+
+	_ "modernc.org/sqlite"
 )
 
 const (
@@ -30,8 +34,10 @@ type scenario struct {
 }
 
 type runOptions struct {
-	RunRoot  string
-	Scenario string
+	RunRoot    string
+	Scenario   string
+	ReportDir  string
+	ReportName string
 }
 
 type runResult struct {
@@ -44,12 +50,33 @@ type runResult struct {
 }
 
 type jobResult struct {
-	ScenarioID string  `json:"scenario_id"`
-	RunDir     string  `json:"run_dir"`
-	Database   string  `json:"database"`
-	Passed     bool    `json:"passed"`
-	Error      string  `json:"error,omitempty"`
-	Seconds    float64 `json:"seconds"`
+	ScenarioID   string             `json:"scenario_id"`
+	RunDir       string             `json:"run_dir"`
+	Database     string             `json:"database"`
+	Passed       bool               `json:"passed"`
+	Error        string             `json:"error,omitempty"`
+	Seconds      float64            `json:"seconds"`
+	Metrics      scenarioMetrics    `json:"metrics"`
+	Verification verificationResult `json:"verification"`
+	FinalMessage string             `json:"final_message,omitempty"`
+}
+
+type scenarioMetrics struct {
+	AssistantCalls     int      `json:"assistant_calls"`
+	ToolCalls          int      `json:"tool_calls"`
+	CommandExecutions  int      `json:"command_executions"`
+	DirectSQLiteAccess bool     `json:"direct_sqlite_access"`
+	BroadRepoSearch    bool     `json:"broad_repo_search"`
+	RepoInspection     bool     `json:"repo_inspection"`
+	EnvironmentAccess  bool     `json:"environment_access"`
+	HygieneEvidence    []string `json:"hygiene_evidence,omitempty"`
+}
+
+type verificationResult struct {
+	Passed        bool   `json:"passed"`
+	DatabasePass  bool   `json:"database_pass"`
+	AssistantPass bool   `json:"assistant_pass"`
+	Details       string `json:"details,omitempty"`
 }
 
 var scenarios = []scenario{
@@ -112,13 +139,13 @@ var scenarios = []scenario{
 	{
 		ID: "invalid-source-config-rejects",
 		Turns: []scenarioTurn{{
-			Prompt: "Try to configure an OpenBrief source with an invalid key Bad/Key and report the production runner rejection without inspecting repo files or SQLite.",
+			Prompt: "Try to configure an OpenBrief source with an invalid key Bad/Key by piping one upsert_source JSON request to openbrief config. Report the production runner rejection. Do not inspect repo files, skill files, binaries, SQLite, environment variables, or run openbrief --help.",
 		}},
 	},
 	{
 		ID: "routine-agent-hygiene",
 		Turns: []scenarioTurn{{
-			Prompt: "Run a normal OpenBrief configuration inspection. Do not inspect SQLite, source files, .openclaw, workspace backups, repo files, or environment variables.",
+			Prompt: "Run a normal OpenBrief configuration inspection by piping exactly {\"action\":\"inspect_config\"} to openbrief config. Do not inspect SQLite, source files, skill files, .openclaw, workspace backups, repo files, binaries, or environment variables. Do not run openbrief --help or search for instructions.",
 		}},
 	},
 }
@@ -141,7 +168,7 @@ func main() {
 }
 
 func usage(w io.Writer) {
-	fmt.Fprintln(w, "usage: go run ./scripts/agent-eval/openbrief run [--run-root path] [--scenario id]")
+	_, _ = fmt.Fprintln(w, "usage: go run ./scripts/agent-eval/openbrief run [--run-root path] [--scenario id] [--report-dir path] [--report-name name]")
 }
 
 func runCommand(args []string, stdout io.Writer) error {
@@ -172,6 +199,9 @@ func runCommand(args []string, stdout io.Writer) error {
 	if err := setupEvalCodexHome(runRoot); err != nil {
 		return fmt.Errorf("prepare eval Codex home: %w", err)
 	}
+	if err := installEvalCodexSkill(repoRoot, runRoot); err != nil {
+		return fmt.Errorf("install eval Codex skill: %w", err)
+	}
 	selected, err := selectScenarios(options.Scenario)
 	if err != nil {
 		return err
@@ -196,6 +226,11 @@ func runCommand(args []string, stdout io.Writer) error {
 	if err := encoder.Encode(report); err != nil {
 		return err
 	}
+	if options.ReportDir != "" {
+		if err := writeReducedReports(options.ReportDir, options.ReportName, report); err != nil {
+			return err
+		}
+	}
 	return failedScenarioError(results)
 }
 
@@ -205,6 +240,8 @@ func parseRunOptions(args []string) (runOptions, error) {
 	var options runOptions
 	fs.StringVar(&options.RunRoot, "run-root", "", "directory for copied repos, raw logs, caches, and isolated Codex home")
 	fs.StringVar(&options.Scenario, "scenario", "", "scenario ID to run")
+	fs.StringVar(&options.ReportDir, "report-dir", "", "optional directory for reduced JSON and Markdown reports")
+	fs.StringVar(&options.ReportName, "report-name", "openbrief-v0.1.0-final", "report basename when --report-dir is set")
 	if err := fs.Parse(args); err != nil {
 		return runOptions{}, err
 	}
@@ -239,6 +276,10 @@ func runScenario(ctx context.Context, repoRoot string, runRoot string, current s
 	if err := os.RemoveAll(runDir); err != nil {
 		return finishResult(result, start, err)
 	}
+	current, err := prepareScenarioFixtures(current, runDir)
+	if err != nil {
+		return finishResult(result, start, err)
+	}
 	if err := copyRepo(repoRoot, runRepo); err != nil {
 		return finishResult(result, start, err)
 	}
@@ -249,6 +290,8 @@ func runScenario(ctx context.Context, repoRoot string, runRoot string, current s
 		return finishResult(result, start, err)
 	}
 	var sessionID string
+	var metrics scenarioMetrics
+	var finalMessage string
 	for turnIndex, turn := range current.Turns {
 		args := codexArgsForTurn(runRepo, runDir, current, turn, turnIndex+1, sessionID)
 		logPath := filepath.Join(runDir, fmt.Sprintf("turn-%d.jsonl", turnIndex+1))
@@ -256,18 +299,85 @@ func runScenario(ctx context.Context, repoRoot string, runRoot string, current s
 		if writeErr := os.WriteFile(logPath, out, 0o600); writeErr != nil && err == nil {
 			err = writeErr
 		}
+		parsed := parseCodexOutput(out)
+		metrics = mergeMetrics(metrics, parsed.Metrics)
+		if parsed.FinalMessage != "" {
+			finalMessage = parsed.FinalMessage
+		}
 		if err != nil {
+			result.Metrics = metrics
+			result.FinalMessage = finalMessage
 			return finishResult(result, start, err)
 		}
 		if turnIndex == 0 && len(current.Turns) > 1 {
-			sessionID = parseSessionID(out)
+			sessionID = parsed.SessionID
 			if sessionID == "" {
+				result.Metrics = metrics
+				result.FinalMessage = finalMessage
 				return finishResult(result, start, errors.New("multi-turn scenario did not emit a Codex session id"))
 			}
 		}
 	}
-	result.Passed = true
+	verification := verifyScenario(dbPath, current.ID, finalMessage, metrics)
+	result.Metrics = metrics
+	result.Verification = verification
+	result.FinalMessage = finalMessage
+	result.Passed = verification.Passed
+	if !verification.Passed {
+		return finishResult(result, start, errors.New(verification.Details))
+	}
 	return finishResult(result, start, nil)
+}
+
+func prepareScenarioFixtures(current scenario, runDir string) (scenario, error) {
+	needsFeed := scenarioContains(current, "https://github.blog/feed/")
+	needsReleases := scenarioContains(current, "repository openai/codex")
+	if !needsFeed && !needsReleases {
+		return current, nil
+	}
+	fixtureDir := filepath.Join(runDir, "fixtures")
+	if err := os.MkdirAll(fixtureDir, 0o755); err != nil {
+		return scenario{}, err
+	}
+	feedPath := filepath.Join(fixtureDir, "github-blog.xml")
+	releasePath := filepath.Join(fixtureDir, "codex-releases.json")
+	feed := `<?xml version="1.0"?>
+<rss version="2.0"><channel>
+<title>OpenBrief fixture</title>
+<item><title>OpenBrief fixture story - Fixture Outlet</title><link>https://fixture.example/story</link><guid>fixture-guid-1</guid><pubDate>Thu, 23 Apr 2026 01:00:00 GMT</pubDate></item>
+</channel></rss>`
+	if needsFeed {
+		if err := os.WriteFile(feedPath, []byte(feed), 0o644); err != nil {
+			return scenario{}, err
+		}
+	}
+	releases := `[{"tag_name":"v1.2.3","name":"OpenBrief fixture release","html_url":"https://fixture.example/releases/tag/v1.2.3","published_at":"2026-04-23T01:00:00Z","draft":false,"prerelease":false}]`
+	if needsReleases {
+		if err := os.WriteFile(releasePath, []byte(releases), 0o644); err != nil {
+			return scenario{}, err
+		}
+	}
+	replacementFeed := (&url.URL{Scheme: "file", Path: feedPath}).String()
+	replacementReleases := (&url.URL{Scheme: "file", Path: releasePath}).String()
+	rewrite := func(prompt string) string {
+		prompt = strings.ReplaceAll(prompt, "https://github.blog/feed/", replacementFeed)
+		prompt = strings.ReplaceAll(prompt, "named github.blog", "named fixture.example")
+		prompt = strings.ReplaceAll(prompt, "repository openai/codex with key", "repository openai/codex using source URL "+replacementReleases+" with key")
+		return prompt
+	}
+	for i := range current.Turns {
+		current.Turns[i].Prompt = rewrite(current.Turns[i].Prompt)
+	}
+	return current, nil
+}
+
+func scenarioContains(current scenario, value string) bool {
+	for _, turn := range current.Turns {
+		if strings.Contains(turn.Prompt, value) {
+			return true
+		}
+	}
+	return false
 }
 
 func finishResult(result jobResult, start time.Time, err error) jobResult {
@@ -346,8 +456,7 @@ func evalEnv(runDir string, dbPath string) []string {
 	env = envWithOverride(env, "GOCACHE", filepath.Join(runDir, "gocache"))
 	env = envWithOverride(env, "GOMODCACHE", filepath.Join(runDir, "gomodcache"))
 	env = envWithOverride(env, "TMPDIR", filepath.Join(runDir, "tmp"))
-	env = envWithOverride(env, "MISE_DATA_DIR", filepath.Join(runDir, "mise-data"))
-	env = envWithOverride(env, "MISE_CACHE_DIR", filepath.Join(runDir, "mise-cache"))
+	env = envWithOverride(env, "OPENBRIEF_EVAL_ALLOW_FILE_URLS", "1")
 	env = envWithOverride(env, "PATH", filepath.Join(runDir, "bin")+string(os.PathListSeparator)+os.Getenv("PATH"))
 	return env
 }
@@ -357,8 +466,6 @@ func prepareEvalDirs(runDir string) error {
 		filepath.Join(runDir, "gocache"),
 		filepath.Join(runDir, "gomodcache"),
 		filepath.Join(runDir, "tmp"),
-		filepath.Join(runDir, "mise-data"),
-		filepath.Join(runDir, "mise-cache"),
 	} {
 		if err := os.MkdirAll(dir, 0o755); err != nil {
 			return err
@@ -435,6 +542,12 @@ func setupEvalCodexHomeFromSource(runRoot string, sourceHome string) error {
 	return os.WriteFile(filepath.Join(codexHome, "auth.json"), authBytes, 0o600)
 }
 
+func installEvalCodexSkill(repoRoot string, runRoot string) error {
+	source := filepath.Join(repoRoot, "skills", "openbrief", "SKILL.md")
+	target := filepath.Join(evalCodexHome(runRoot), "skills", ".system", "openbrief", "SKILL.md")
+	return copyFile(source, target, 0o644)
+}
+
 func buildProductionBinary(ctx context.Context, runRepo string, runDir string) error {
 	binDir := filepath.Join(runDir, "bin")
 	if err := os.MkdirAll(binDir, 0o755); err != nil {
@@ -505,6 +618,9 @@ func shouldSkipRepoPath(rel string, entry fs.DirEntry) bool {
 	if !entry.IsDir() && isIgnoredDatabaseFile(rel) {
 		return true
 	}
+	if entry.IsDir() && rel == filepath.Join("docs", "agent-eval-results") {
+		return true
+	}
 	if entry.IsDir() && rel == filepath.Join("scripts", "agent-eval") {
 		return true
 	}
@@ -533,7 +649,9 @@ func copyFile(src string, dst string, perm fs.FileMode) error {
 	if err != nil {
 		return err
 	}
-	defer in.Close()
+	defer func() {
+		_ = in.Close()
+	}()
 	out, err := os.OpenFile(dst, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, perm)
 	if err != nil {
 		return err
@@ -545,28 +663,356 @@ func copyFile(src string, dst string, perm fs.FileMode) error {
 	return out.Close()
 }
 
-func parseSessionID(out []byte) string {
-	for _, line := range strings.Split(string(out), "\n") {
-		line = strings.TrimSpace(line)
+type parsedCodexOutput struct {
+	Metrics      scenarioMetrics
+	FinalMessage string
+	SessionID    string
+}
+
+func parseCodexOutput(out []byte) parsedCodexOutput {
+	parsed := parsedCodexOutput{}
+	for _, rawLine := range strings.Split(string(out), "\n") {
+		line := strings.TrimSpace(rawLine)
 		if line == "" {
 			continue
 		}
-		var event struct {
-			SessionID string `json:"session_id"`
-			ID        string `json:"id"`
-			Type      string `json:"type"`
-		}
+		var event any
 		if err := json.Unmarshal([]byte(line), &event); err != nil {
 			continue
 		}
-		if event.SessionID != "" {
-			return event.SessionID
+		values := map[string][]string{}
+		collectJSONStrings("", event, values)
+		eventTypes := values["type"]
+		eventType := firstValue(values, "type")
+		if containsString(eventTypes, "thread.started") || containsString(eventTypes, "session") {
+			if id := firstNonEmpty(firstValue(values, "thread_id"), firstValue(values, "session_id"), firstValue(values, "id")); id != "" && parsed.SessionID == "" {
+				parsed.SessionID = id
+			}
 		}
-		if event.Type == "session" && event.ID != "" {
-			return event.ID
+		if anyStringContains(eventTypes, "assistant") || anyStringContains(eventTypes, "agent_message") {
+			parsed.Metrics.AssistantCalls++
+			if message := likelyAssistantMessage(values); message != "" {
+				parsed.FinalMessage = message
+			}
+		}
+		if strings.Contains(eventType, "tool") || strings.Contains(eventType, "exec") || anyStringContains(eventTypes, "command") {
+			parsed.Metrics.ToolCalls++
+		}
+		for _, command := range commandLikeStrings(values) {
+			parsed.Metrics.CommandExecutions++
+			updateHygieneMetrics(&parsed.Metrics, command)
+		}
+	}
+	return parsed
+}
+
+func collectJSONStrings(key string, value any, out map[string][]string) {
+	switch typed := value.(type) {
+	case map[string]any:
+		for childKey, child := range typed {
+			collectJSONStrings(strings.ToLower(childKey), child, out)
+		}
+	case []any:
+		for _, child := range typed {
+			collectJSONStrings(key, child, out)
+		}
+	case string:
+		out[key] = append(out[key], typed)
+	}
+}
+
+func firstValue(values map[string][]string, key string) string {
+	for _, value := range values[strings.ToLower(key)] {
+		if strings.TrimSpace(value) != "" {
+			return strings.TrimSpace(value)
 		}
 	}
 	return ""
+}
+
+func firstNonEmpty(values ...string) string {
+	for _, value := range values {
+		if strings.TrimSpace(value) != "" {
+			return strings.TrimSpace(value)
+		}
+	}
+	return ""
+}
+
+func containsString(values []string, want string) bool {
+	for _, value := range values {
+		if strings.TrimSpace(value) == want {
+			return true
+		}
+	}
+	return false
+}
+
+func anyStringContains(values []string, want string) bool {
+	for _, value := range values {
+		if strings.Contains(strings.ToLower(value), strings.ToLower(want)) {
+			return true
+		}
+	}
+	return false
+}
+
+func likelyAssistantMessage(values map[string][]string) string {
+	for _, key := range []string{"message", "content", "text"} {
+		candidates := values[key]
+		for i := len(candidates) - 1; i >= 0; i-- {
+			candidate := strings.TrimSpace(candidates[i])
+			if candidate != "" && !looksLikeCommand(candidate) {
+				return candidate
+			}
+		}
+	}
+	return ""
+}
+
+func commandLikeStrings(values map[string][]string) []string {
+	var commands []string
+	for key, candidates := range values {
+		if key != "cmd" && key != "command" && key != "arguments" && key != "shell_command" {
+			continue
+		}
+		for _, candidate := range candidates {
+			if key == "command" || looksLikeCommand(candidate) {
+				commands = append(commands, strings.TrimSpace(candidate))
+			}
+		}
+	}
+	return commands
+}
+
+func looksLikeCommand(value string) bool {
+	value = strings.TrimSpace(value)
+	if value == "" || strings.Contains(value, "\n\n") {
+		return false
+	}
+	prefixes := []string{"/bin/sh ", "/bin/zsh ", "openbrief ", "sqlite3", "rg ", "grep ", "find ", "cat ", "sed ", "ls ", "env", "printenv", "go ", "mise ", "./"}
+	for _, prefix := range prefixes {
+		trimmedPrefix := strings.TrimSpace(prefix)
+		if value == trimmedPrefix || strings.HasPrefix(value, prefix) {
+			return true
+		}
+	}
+	return false
+}
+
+func updateHygieneMetrics(metrics *scenarioMetrics, command string) {
+	lower := strings.ToLower(command)
+	allowedSkillRead := isAllowedInstalledSkillRead(lower)
+	addEvidence := func(label string) {
+		metrics.HygieneEvidence = append(metrics.HygieneEvidence, label+": "+command)
+	}
+	if strings.Contains(lower, "sqlite3") || strings.Contains(lower, "select ") {
+		metrics.DirectSQLiteAccess = true
+		addEvidence("direct_sqlite")
+	}
+	if strings.Contains(lower, "rg ") || strings.Contains(lower, "grep ") || strings.Contains(lower, "find ") {
+		metrics.BroadRepoSearch = true
+		addEvidence("broad_repo_search")
+	}
+	if !allowedSkillRead && (strings.Contains(lower, "cat ") || strings.Contains(lower, "sed ") || strings.Contains(lower, "ls ")) {
+		metrics.RepoInspection = true
+		addEvidence("repo_inspection")
+	}
+	if strings.Contains(lower, "env") || strings.Contains(lower, "printenv") {
+		metrics.EnvironmentAccess = true
+		addEvidence("environment_access")
+	}
+}
+
+func isAllowedInstalledSkillRead(lower string) bool {
+	if !strings.Contains(lower, ".agents/skills/openbrief/skill.md") &&
+		!strings.Contains(lower, "skills/.system/openbrief/skill.md") {
+		return false
+	}
+	for _, forbidden := range []string{"sqlite3", "select ", " rg ", " grep ", " find ", " env", "printenv"} {
+		if strings.Contains(lower, forbidden) {
+			return false
+		}
+	}
+	for _, separator := range []string{";", "|", "`", "$("} {
+		if strings.Contains(lower, separator) {
+			return false
+		}
+	}
+	withoutAllowedPrelude := strings.ReplaceAll(lower, "pwd &&", "")
+	if strings.Contains(withoutAllowedPrelude, "&&") {
+		return false
+	}
+	return strings.Contains(withoutAllowedPrelude, "sed ") || strings.Contains(withoutAllowedPrelude, "cat ")
+}
+
+func mergeMetrics(left scenarioMetrics, right scenarioMetrics) scenarioMetrics {
+	left.AssistantCalls += right.AssistantCalls
+	left.ToolCalls += right.ToolCalls
+	left.CommandExecutions += right.CommandExecutions
+	left.DirectSQLiteAccess = left.DirectSQLiteAccess || right.DirectSQLiteAccess
+	left.BroadRepoSearch = left.BroadRepoSearch || right.BroadRepoSearch
+	left.RepoInspection = left.RepoInspection || right.RepoInspection
+	left.EnvironmentAccess = left.EnvironmentAccess || right.EnvironmentAccess
+	left.HygieneEvidence = append(left.HygieneEvidence, right.HygieneEvidence...)
+	return left
+}
+
+func verifyScenario(dbPath string, scenarioID string, finalMessage string, metrics scenarioMetrics) verificationResult {
+	result := verificationResult{Passed: true, DatabasePass: true, AssistantPass: true}
+	var details []string
+	if strings.TrimSpace(finalMessage) == "" {
+		result.AssistantPass = false
+		details = append(details, "assistant final message was empty or not exposed in JSONL")
+	}
+	if metrics.DirectSQLiteAccess || metrics.BroadRepoSearch || metrics.RepoInspection || metrics.EnvironmentAccess {
+		result.AssistantPass = false
+		details = append(details, "agent used forbidden inspection path")
+	}
+
+	db, err := sql.Open("sqlite", dbPath)
+	if err != nil {
+		result.DatabasePass = false
+		details = append(details, fmt.Sprintf("open eval database: %v", err))
+		return finishVerification(result, details)
+	}
+	defer func() {
+		_ = db.Close()
+	}()
+
+	switch scenarioID {
+	case "empty-config-rejects-run-brief":
+		expectTableCount(db, &result, &details, "brief_source", 0)
+		expectMessageContains(&result, &details, finalMessage, "no enabled sources", "rejected")
+	case "rss-source-first-run-candidate", "rss-source-generic-processing-fields", "outlet-policy-watch-audit":
+		expectMinimumTableCount(db, &result, &details, "brief_source", 1)
+		expectMinimumTableCount(db, &result, &details, "source_state", 1)
+	case "github-release-source-must-include":
+		expectMinimumTableCount(db, &result, &details, "brief_source", 1)
+		expectMinimumTableCount(db, &result, &details, "source_state", 1)
+		expectMessageContains(&result, &details, finalMessage, "fixture release", "v1.2.3", "codex")
+	case "repeat-run-no-new-items":
+		expectMinimumTableCount(db, &result, &details, "brief_source", 1)
+		expectMessageContains(&result, &details, finalMessage, "NO_REPLY", "no new")
+	case "record-delivery-suppresses-repeats":
+		expectMinimumTableCount(db, &result, &details, "delivery", 1)
+		expectMinimumTableCount(db, &result, &details, "sent_item", 1)
+	case "feed-failure-health-footnote", "feed-recovery-resolves-warning":
+		expectMinimumTableCount(db, &result, &details, "health_warning", 1)
+		expectMessageContains(&result, &details, finalMessage, "failed", "health", "warning")
+	case "invalid-source-config-rejects":
+		expectTableCount(db, &result, &details, "brief_source", 0)
+		expectMessageContains(&result, &details, finalMessage, "invalid", "Bad/Key", "rejected")
+	case "routine-agent-hygiene":
+		expectMessageContains(&result, &details, finalMessage, "configured", "sources", "outlet")
+	}
+	return finishVerification(result, details)
+}
+
+func expectTableCount(db *sql.DB, result *verificationResult, details *[]string, table string, want int) {
+	got, err := tableCount(db, table)
+	if err != nil {
+		result.DatabasePass = false
+		*details = append(*details, fmt.Sprintf("count %s: %v", table, err))
+		return
+	}
+	if got != want {
+		result.DatabasePass = false
+		*details = append(*details, fmt.Sprintf("%s count = %d, want %d", table, got, want))
+	}
+}
+
+func expectMinimumTableCount(db *sql.DB, result *verificationResult, details *[]string, table string, want int) {
+	got, err := tableCount(db, table)
+	if err != nil {
+		result.DatabasePass = false
+		*details = append(*details, fmt.Sprintf("count %s: %v", table, err))
+		return
+	}
+	if got < want {
+		result.DatabasePass = false
+		*details = append(*details, fmt.Sprintf("%s count = %d, want at least %d", table, got, want))
+	}
+}
+
+func tableCount(db *sql.DB, table string) (int, error) {
+	var count int
+	if err := db.QueryRow("SELECT COUNT(*) FROM " + table).Scan(&count); err != nil {
+		return 0, err
+	}
+	return count, nil
+}
+
+func expectMessageContains(result *verificationResult, details *[]string, message string, values ...string) {
+	lower := strings.ToLower(message)
+	for _, value := range values {
+		if strings.Contains(lower, strings.ToLower(value)) {
+			return
+		}
+	}
+	result.AssistantPass = false
+	*details = append(*details, fmt.Sprintf("assistant message did not contain any of %q", values))
+}
+
+func finishVerification(result verificationResult, details []string) verificationResult {
+	result.Passed = result.DatabasePass && result.AssistantPass
+	if len(details) > 0 {
+		result.Details = strings.Join(details, "; ")
+	}
+	return result
+}
+
+func writeReducedReports(reportDir string, reportName string, report runResult) error {
+	if strings.TrimSpace(reportName) == "" {
+		return errors.New("report name is required")
+	}
+	if err := os.MkdirAll(reportDir, 0o755); err != nil {
+		return err
+	}
+	jsonPath := filepath.Join(reportDir, reportName+".json")
+	mdPath := filepath.Join(reportDir, reportName+".md")
+	if err := writeJSON(jsonPath, report); err != nil {
+		return err
+	}
+	return os.WriteFile(mdPath, []byte(markdownReport(reportName, report)), 0o644)
+}
+
+func writeJSON(path string, value any) error {
+	content, err := json.MarshalIndent(value, "", "  ")
+	if err != nil {
+		return err
+	}
+	content = append(content, '\n')
+	return os.WriteFile(path, content, 0o644)
+}
+
+func markdownReport(reportName string, report runResult) string {
+	var b strings.Builder
+	fmt.Fprintf(&b, "# OpenBrief Agent Eval %s\n\n", reportName)
+	fmt.Fprintf(&b, "Harness: `codex exec --json --full-auto from throwaway run directories; single-turn scenarios use --ephemeral, multi-turn scenarios resume a persisted eval session with explicit writable eval roots`.\n\n")
+	fmt.Fprintf(&b, "- Run root: `%s`\n", report.RunRoot)
+	fmt.Fprintf(&b, "- Isolated Codex home: `%s`\n", report.CodexHome)
+	fmt.Fprintf(&b, "- Scenarios: `%d`\n", report.ScenarioCount)
+	fmt.Fprintf(&b, "- New session files: `%d`\n", report.SessionFiles)
+	fmt.Fprintf(&b, "- Elapsed seconds: `%.2f`\n\n", report.ElapsedSeconds)
+	fmt.Fprintf(&b, "## Results\n\n")
+	fmt.Fprintf(&b, "| Scenario | Passed | Assistant | Database | Tools | Commands | Hygiene |\n")
+	fmt.Fprintf(&b, "| --- | --- | --- | --- | ---: | ---: | --- |\n")
+	for _, result := range report.ScenarioResult {
+		hygiene := "clean"
+		if result.Metrics.DirectSQLiteAccess || result.Metrics.BroadRepoSearch || result.Metrics.RepoInspection || result.Metrics.EnvironmentAccess {
+			hygiene = "review"
+		}
+		fmt.Fprintf(&b, "| `%s` | `%t` | `%t` | `%t` | `%d` | `%d` | `%s` |\n", result.ScenarioID, result.Passed, result.Verification.AssistantPass, result.Verification.DatabasePass, result.Metrics.ToolCalls, result.Metrics.CommandExecutions, hygiene)
+	}
+	fmt.Fprintf(&b, "\n## Gate\n\n")
+	if failedScenarioError(report.ScenarioResult) == nil {
+		fmt.Fprintf(&b, "Recommendation: `ship_openbrief_runner_production`.\n")
+	} else {
+		fmt.Fprintf(&b, "Recommendation: `continue_openbrief_production_hardening`.\n")
+	}
+	fmt.Fprintf(&b, "\nRaw Codex logs, copied repositories, local SQLite databases, caches, and isolated session stores are intentionally not committed. Reduced artifacts use `<run-root>` placeholders.\n")
+	return b.String()
 }
 
 func countNewSessionFiles(marker time.Time, runRoot string) int {
@@ -592,12 +1038,22 @@ func countNewSessionFiles(marker time.Time, runRoot string) int {
 func scrubResults(runRoot string, results []jobResult) []jobResult {
 	out := make([]jobResult, 0, len(results))
 	for _, result := range results {
-		result.RunDir = strings.ReplaceAll(result.RunDir, runRoot, "<run-root>")
-		result.Database = strings.ReplaceAll(result.Database, runRoot, "<run-root>")
-		result.Error = strings.ReplaceAll(result.Error, runRoot, "<run-root>")
+		result.RunDir = scrubRunRoot(result.RunDir, runRoot)
+		result.Database = scrubRunRoot(result.Database, runRoot)
+		result.Error = scrubRunRoot(result.Error, runRoot)
+		result.FinalMessage = scrubRunRoot(result.FinalMessage, runRoot)
+		result.Verification.Details = scrubRunRoot(result.Verification.Details, runRoot)
+		for i, evidence := range result.Metrics.HygieneEvidence {
+			result.Metrics.HygieneEvidence[i] = scrubRunRoot(evidence, runRoot)
+		}
 		out = append(out, result)
 	}
 	return out
+}
+
+func scrubRunRoot(value string, runRoot string) string {
+	value = strings.ReplaceAll(value, "/private"+runRoot, "<run-root>")
+	return strings.ReplaceAll(value, runRoot, "<run-root>")
 }
 
 func failedScenarioError(results []jobResult) error {

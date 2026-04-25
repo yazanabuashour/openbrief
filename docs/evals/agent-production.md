@@ -51,3 +51,10 @@ that isolated session store.
 Raw Codex logs and copied repositories stay under `<run-root>` and are not
 committed. Any committed reduced report must replace local run directories with
 neutral placeholders such as `<run-root>`.
+
+## Reports
+
+Reduced reports are committed under `docs/agent-eval-results/`. They are the
+only eval artifacts intended for the repository. Raw JSONL logs, copied repos,
+temporary databases, isolated Codex homes, and caches stay under `<run-root>`
+outside this repository.

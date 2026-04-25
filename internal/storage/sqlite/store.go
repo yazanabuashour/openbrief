@@ -43,6 +43,8 @@ var (
 	gitHubRepoPattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9-]*/[A-Za-z0-9._-]+$`)
 )
 
+const evalAllowFileURLsEnv = "OPENBRIEF_EVAL_ALLOW_FILE_URLS"
+
 type Config struct {
 	DatabasePath string
 }
@@ -546,7 +548,7 @@ func NormalizeSource(source Source) (Source, error) {
 	}
 	switch source.Kind {
 	case SourceKindRSS, SourceKindAtom:
-		if err := validateHTTPURL(source.URL); err != nil {
+		if err := validateFetchURL(source.URL); err != nil {
 			return Source{}, fmt.Errorf("source %q url: %w", source.Key, err)
 		}
 	case SourceKindGitHubRelease:
@@ -557,7 +559,7 @@ func NormalizeSource(source Source) (Source, error) {
 			return Source{}, fmt.Errorf("source %q repo must be owner/name", source.Key)
 		}
 		if source.URL != "" {
-			if err := validateHTTPURL(source.URL); err != nil {
+			if err := validateFetchURL(source.URL); err != nil {
 				return Source{}, fmt.Errorf("source %q url: %w", source.Key, err)
 			}
 		}
@@ -567,13 +569,19 @@ func NormalizeSource(source Source) (Source, error) {
 	return source, nil
 }
 
-func validateHTTPURL(value string) error {
+func validateFetchURL(value string) error {
 	if strings.TrimSpace(value) == "" {
 		return errors.New("is required")
 	}
 	parsed, err := url.Parse(value)
 	if err != nil {
 		return err
+	}
+	if parsed.Scheme == "file" && allowFileURLsForEval() {
+		if parsed.Path == "" {
+			return errors.New("file URL must include a path")
+		}
+		return nil
 	}
 	if parsed.Scheme != "http" && parsed.Scheme != "https" {
 		return errors.New("must be http or https")
@@ -582,6 +590,10 @@ func validateHTTPURL(value string) error {
 		return errors.New("must include a host")
 	}
 	return nil
+}
+
+func allowFileURLsForEval() bool {
+	return os.Getenv(evalAllowFileURLsEnv) == "1"
 }
 
 func (s *Store) ListOutletPolicies(ctx context.Context) ([]OutletPolicy, error) {

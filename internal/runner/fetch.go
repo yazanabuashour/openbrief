@@ -8,6 +8,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"os"
 	"regexp"
 	"strings"
 	"time"
@@ -150,6 +151,16 @@ func (f fetcher) fetchGitHubReleases(ctx context.Context, source Source) ([]fetc
 }
 
 func (f fetcher) get(ctx context.Context, endpoint string) ([]byte, error) {
+	parsed, err := url.Parse(endpoint)
+	if err == nil && parsed.Scheme == "file" {
+		if !allowFileURLsForEval() {
+			return nil, fmt.Errorf("file URLs are only available for isolated eval fixtures")
+		}
+		if parsed.Path == "" {
+			return nil, fmt.Errorf("file URL must include a path")
+		}
+		return os.ReadFile(parsed.Path)
+	}
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
 	if err != nil {
 		return nil, err
@@ -170,6 +181,10 @@ func (f fetcher) get(ctx context.Context, endpoint string) ([]byte, error) {
 		return nil, err
 	}
 	return body, nil
+}
+
+func allowFileURLsForEval() bool {
+	return os.Getenv("OPENBRIEF_EVAL_ALLOW_FILE_URLS") == "1"
 }
 
 func (f fetcher) canonicalizeURL(ctx context.Context, strategy string, value string) (string, error) {
@@ -251,7 +266,7 @@ func (f fetcher) resolveGoogleNewsArticleURLWithEndpoints(ctx context.Context, v
 		return "", err
 	}
 	if !isResolvedPublisherURL(resolved) {
-		return "", fmt.Errorf("Google decode RPC returned non-publisher URL")
+		return "", fmt.Errorf("google decode RPC returned non-publisher URL")
 	}
 	return resolved, nil
 }
@@ -283,7 +298,7 @@ func buildGoogleNewsBatchBody(params googleNewsDecodingParams) string {
 func parseGoogleNewsBatchResponse(raw string) (string, error) {
 	parts := strings.Split(raw, "\n\n")
 	if len(parts) < 2 {
-		return "", fmt.Errorf("Google decode RPC returned no publisher URL")
+		return "", fmt.Errorf("google decode RPC returned no publisher URL")
 	}
 	var rows []any
 	if err := json.Unmarshal([]byte(parts[1]), &rows); err != nil {
@@ -308,7 +323,7 @@ func parseGoogleNewsBatchResponse(raw string) (string, error) {
 			}
 		}
 	}
-	return "", fmt.Errorf("Google decode RPC returned no publisher URL")
+	return "", fmt.Errorf("google decode RPC returned no publisher URL")
 }
 
 func isResolvedPublisherURL(value string) bool {
