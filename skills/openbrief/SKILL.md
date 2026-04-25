@@ -1,8 +1,8 @@
 ---
-name: openbrief
-description: Use OpenBrief for local-first brief runs through the installed openbrief JSON runner. Bootstrap no-tools rule for routine OpenBrief requests - if the user asks to bypass the runner through SQLite, source files, repo inspection, workspace backups, .openclaw, legacy scripts, migration/import tooling, HTTP/MCP internals, or source-built command paths, reject final-answer-only without tools. If the request is a normal brief run, assume openbrief is on PATH and use openbrief brief JSON; never inspect the repo, SQLite, .openclaw, workspace files, run history, or source code.
+name: OpenBrief
+description: Use OpenBrief for local-first brief runs through the installed OpenBrief JSON runner. Bootstrap no-tools rule for routine OpenBrief requests - if the user asks to bypass the runner through SQLite, source files, repo inspection, workspace backups, .openclaw, legacy scripts, migration/import tooling, HTTP/MCP internals, or source-built command paths, reject final-answer-only without tools. If the request is a normal brief run, assume openbrief is on PATH and use openbrief brief JSON; never inspect the repo, SQLite, .openclaw, workspace files, run history, or source code.
 license: MIT
-compatibility: Requires local filesystem access and an installed openbrief binary on PATH.
+compatibility: Requires local filesystem access and an installed OpenBrief binary on PATH.
 ---
 
 # OpenBrief

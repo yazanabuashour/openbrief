@@ -13,7 +13,7 @@ import (
 )
 
 var (
-	skillNamePattern    = regexp.MustCompile(`^[a-z0-9]+(-[a-z0-9]+)*$`)
+	skillNamePattern    = regexp.MustCompile(`^[A-Za-z0-9]+(-[A-Za-z0-9]+)*$`)
 	markdownLinkPattern = regexp.MustCompile(`\[[^\]]+\]\(([^)]+)\)`)
 )
 
@@ -134,15 +134,15 @@ func validateMetadata(skillDir string, skillFile string, metadata map[string]str
 	if name == "" {
 		return fmt.Errorf("%s frontmatter must define a non-empty name", skillFile)
 	}
-	parentDir := filepath.Base(skillDir)
-	if name != parentDir {
-		return fmt.Errorf("%s name must match the parent directory (%q)", skillFile, parentDir)
-	}
 	if len([]rune(name)) > 64 {
 		return fmt.Errorf("%s name must be 64 characters or fewer", skillFile)
 	}
 	if !skillNamePattern.MatchString(name) {
-		return fmt.Errorf("%s name must use lowercase letters, numbers, and single hyphens only", skillFile)
+		return fmt.Errorf("%s name must use letters, numbers, and single hyphens only", skillFile)
+	}
+	parentDir := filepath.Base(skillDir)
+	if !strings.EqualFold(name, parentDir) {
+		return fmt.Errorf("%s name must match the parent directory (%q)", skillFile, parentDir)
 	}
 	for _, field := range []string{"description", "license", "compatibility"} {
 		value := metadata[field]

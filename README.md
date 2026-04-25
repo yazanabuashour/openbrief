@@ -14,7 +14,7 @@ Tell your agent:
 ```text
 Install OpenBrief from https://github.com/yazanabuashour/openbrief.
 Complete both required steps before reporting success:
-1. Install and verify the openbrief runner binary with `openbrief --version`.
+1. Install and verify the OpenBrief runner binary with `openbrief --version`.
 2. Register the OpenBrief skill from skills/openbrief/SKILL.md using your native skill system.
 ```
 
@@ -47,7 +47,7 @@ Tell your agent:
 ```text
 Upgrade OpenBrief from https://github.com/yazanabuashour/openbrief.
 Complete both required steps before reporting success:
-1. Upgrade and verify the openbrief runner binary with `openbrief --version`.
+1. Upgrade and verify the OpenBrief runner binary with `openbrief --version`.
 2. Re-register the OpenBrief skill from skills/openbrief/SKILL.md using your native skill system.
 ```
 

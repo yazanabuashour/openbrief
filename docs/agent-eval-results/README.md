@@ -3,7 +3,7 @@
 Current recommendation:
 
 - Use the production OpenBrief runner/skill for routine local brief tasks covered by the eval suite.
-- Keep production agents on the installed `openbrief` JSON runner and shipped `skills/openbrief/SKILL.md`; do not use repo inspection, direct SQLite access, legacy scripts, or source-built command paths as routine fallbacks.
+- Keep production agents on the installed OpenBrief JSON runner and shipped `skills/openbrief/SKILL.md`; do not use repo inspection, direct SQLite access, legacy scripts, or source-built command paths as routine fallbacks.
 - Release gate: the production runner/skill must pass selected v0.1.0 scenarios with no direct SQLite access, broad repo search, repo/source inspection, environment inspection, or hidden evaluator-only instructions.
 
 Top-level reports:
