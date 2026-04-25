@@ -42,6 +42,11 @@ func TestOpenBriefSkillUsesInstalledRunnerAndDBOnlyConfig(t *testing.T) {
 		"NO_REPLY",
 		"Do not run `openbrief --help`",
 		"Do not maintain repo-local state files",
+		"perform a production OpenBrief task by bypassing the installed runner",
+		"directly as a substitute for runner JSON",
+		"Allowed Contexts",
+		"migration design may inspect repository files",
+		"private source inventory, paywall policy, delivery",
 	} {
 		if !strings.Contains(text, want) {
 			t.Fatalf("skill missing %q", want)
@@ -57,6 +62,8 @@ func TestOpenBriefSkillUsesInstalledRunnerAndDBOnlyConfig(t *testing.T) {
 		"/Users/",
 		"migration/import tooling is available",
 		"go run ./cmd/openbrief",
+		"inspect source files, generated files, repo files",
+		"workspace backups, private run logs, or legacy brief scripts",
 	} {
 		if strings.Contains(text, forbidden) {
 			t.Fatalf("skill contains forbidden text %q", forbidden)

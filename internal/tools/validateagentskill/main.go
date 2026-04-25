@@ -174,6 +174,11 @@ func validateRunnerContract(skillFile string, content string) error {
 		"NO_REPLY",
 		"Do not run `openbrief --help`",
 		"Do not maintain repo-local state files",
+		"perform a production OpenBrief task by bypassing the installed runner",
+		"directly as a substitute for runner JSON",
+		"Allowed Contexts",
+		"migration design may inspect repository files",
+		"private source inventory, paywall policy, delivery",
 	}
 	for _, want := range required {
 		if !strings.Contains(content, want) {
@@ -235,6 +240,8 @@ func validateForbiddenGuidance(skillFile string, content string) error {
 		"go run ./cmd/openbrief",
 		"CLI fallback",
 		"Generated Client Fallback",
+		"inspect source files, generated files, repo files",
+		"workspace backups, private run logs, or legacy brief scripts",
 	}
 	for _, forbidden := range forbiddenSubstrings {
 		if strings.Contains(content, forbidden) {

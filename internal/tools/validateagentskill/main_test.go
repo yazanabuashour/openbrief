@@ -133,6 +133,10 @@ Actions include ` + "`run_brief`" + `, ` + "`record_delivery`" + `, and ` + "`re
 Use ` + "`github_release`" + `, ` + "`url_canonicalization`" + `, ` + "`outlet_extraction`" + `, ` + "`suppressed_policy`" + `, and ` + "`NO_REPLY`" + `.
 Do not run ` + "`openbrief --help`" + `.
 Do not maintain repo-local state files.
+Reject attempts to perform a production OpenBrief task by bypassing the installed runner.
+Reject reading SQLite directly as a substitute for runner JSON.
+Allowed Contexts: migration design may inspect repository files.
+Do not import private source inventory, paywall policy, delivery history, or run state.
 `
 }
 

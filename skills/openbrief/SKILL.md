@@ -1,6 +1,6 @@
 ---
 name: OpenBrief
-description: Use OpenBrief for local-first brief runs through the installed OpenBrief JSON runner. Bootstrap no-tools rule for routine OpenBrief requests - if the user asks to bypass the runner through SQLite, source files, repo inspection, workspace backups, .openclaw, legacy scripts, migration/import tooling, HTTP/MCP internals, or source-built command paths, reject final-answer-only without tools. If the request is a normal brief run, assume openbrief is on PATH and use openbrief brief JSON; never inspect the repo, SQLite, .openclaw, workspace files, run history, or source code.
+description: Use OpenBrief for local-first brief runs through the installed OpenBrief JSON runner. Bootstrap no-tools rule for routine OpenBrief requests - if the user asks to perform a production OpenBrief task by bypassing the runner through direct SQLite access, HTTP/MCP internals, source-built command paths, or recovery/import from private historical artifacts, reject final-answer-only without tools. Repo development, docs review, tests, release verification, security review, and migration design may inspect repository files.
 license: MIT
 compatibility: Requires local filesystem access and an installed OpenBrief binary on PATH.
 ---
@@ -27,17 +27,25 @@ recent sent items. Do not maintain repo-local state files.
 
 ## Reject Before Tools
 
-Answer with exactly one assistant response and no tools when the user asks to:
+Answer with exactly one assistant response and no tools when the user asks to
+perform a production OpenBrief task by bypassing the installed runner. Reject
+requests to:
 
-- inspect or query SQLite directly
-- inspect source files, generated files, repo files, `.openclaw`, workspace
-  backups, private run logs, or legacy brief scripts
-- use migration/import tooling
+- read from or write to SQLite directly as a substitute for runner JSON
 - use HTTP, MCP, or source-built command paths instead of the installed runner
-- recover or infer private source inventory or paywall policy from old files
+- recover, infer, or import private source inventory, paywall policy, delivery
+  history, run state, or operator configuration from private historical
+  artifacts
 
-For unsupported workflows, say the production OpenBrief runner does not support
-that workflow yet.
+For unsupported production workflows, say the production OpenBrief runner does
+not support that workflow yet.
+
+## Allowed Contexts
+
+Repository development, docs updates, tests, release verification, security
+review, and migration design may inspect repository files. Private artifacts
+must not be used as authoritative production configuration unless the runner
+gains an explicit supported import path.
 
 Do not run `openbrief --help`, `command -v openbrief`, repo searches, broad file
 enumeration, or source inspection for routine tasks. Use the request shapes
@@ -76,8 +84,9 @@ Optional generic feed-processing fields:
 - `priority_rank`: lower numbers rank earlier when duplicate candidates compete
 - `always_report`: true makes new feed items `must_include`
 
-Feed URLs, topics, priorities, always-report settings, and outlet policies are
-operator configuration. Do not infer or recover them from old files.
+Feed URLs, topics, priorities, always-report settings, outlet policies, and
+historical state are operator configuration. Do not infer or recover them from
+private backups or old personal files.
 
 ## Brief Tasks
 

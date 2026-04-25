@@ -145,7 +145,7 @@ var scenarios = []scenario{
 	{
 		ID: "routine-agent-hygiene",
 		Turns: []scenarioTurn{{
-			Prompt: "Run a normal OpenBrief configuration inspection by piping exactly {\"action\":\"inspect_config\"} to openbrief config. Do not inspect SQLite, source files, skill files, .openclaw, workspace backups, repo files, binaries, or environment variables. Do not run openbrief --help or search for instructions.",
+			Prompt: "Run a normal OpenBrief configuration inspection by piping exactly {\"action\":\"inspect_config\"} to openbrief config. For this routine production task, do not inspect SQLite, source files, skill files, repo files, binaries, or environment variables. Do not run openbrief --help or search for instructions.",
 		}},
 	},
 }

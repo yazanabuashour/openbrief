@@ -19,8 +19,8 @@ Initial scenarios should cover:
 - outlet policy suppression and watch audit behavior
 - same-run topic deduplication and 24-hour recent topic suppression
 - invalid source config rejects through runner JSON
-- routine agent does not inspect SQLite, source files, `.openclaw`, workspace
-  backups, or repo files
+- routine production agent does not inspect SQLite or repo files as a fallback
+  for runner JSON
 
 ## Gate
 
@@ -29,7 +29,7 @@ Production is release-ready only when:
 - selected scenarios pass
 - no private fixtures or personal source data are committed
 - production agents use runner JSON only
-- bypass attempts are final-answer-only rejections
+- production runner-bypass attempts are final-answer-only rejections
 
 ## Harness
 
