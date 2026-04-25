@@ -32,50 +32,10 @@ func TestOpenBriefSkillUsesInstalledRunnerAndDBOnlyConfig(t *testing.T) {
 		"openbrief config",
 		"openbrief brief",
 		"OPENBRIEF_DATABASE_PATH",
-		"run_brief",
-		"record_delivery",
 		"replace_sources",
-		"github_release",
-		"url_canonicalization",
-		"outlet_extraction",
-		"suppressed_policy",
-		"NO_REPLY",
-		"Do not run `openbrief --help`",
-		"Do not maintain repo-local state files",
-		"perform a production OpenBrief task by bypassing the installed runner",
-		"directly as a substitute for runner JSON",
-		"Allowed Contexts",
-		"migration design may inspect repository files",
-		"Legacy Migration",
-		"user explicitly points to",
-		"draft OpenBrief sources and outlet policies",
-		"apply only after approval",
-		"delivery history, latest-seen state, run state",
-		"inferred private configuration without user review",
 	} {
 		if !strings.Contains(text, want) {
 			t.Fatalf("skill missing %q", want)
-		}
-	}
-	for _, forbidden := range []string{
-		"OPENBRIEF_DATA_DIR",
-		"brief-fetch.ts",
-		"BRIEF_PAYWALL_POLICY",
-		"BRIEF_SOURCES",
-		"home-openclaw",
-		"/Volumes/",
-		"/Users/",
-		"migration/import tooling is available",
-		"go run ./cmd/openbrief",
-		"inspect source files, generated files, repo files",
-		"workspace backups, private run logs, or legacy brief scripts",
-		"recovery/import from private historical artifacts",
-		"recover, infer, or import private source inventory",
-		"Private artifacts must not be used as authoritative production configuration",
-		"Do not infer or recover them from private backups or old personal files",
-	} {
-		if strings.Contains(text, forbidden) {
-			t.Fatalf("skill contains forbidden text %q", forbidden)
 		}
 	}
 }

@@ -73,6 +73,20 @@ func TestRunRejectsInvalidSkillPayloads(t *testing.T) {
 			wantErr: "forbidden product guidance",
 		},
 		{
+			name: "missing legacy migration guidance",
+			files: map[string]string{
+				"SKILL.md": strings.Replace(validSkillMarkdown("OpenBrief"), "Legacy Migration: user explicitly points to the input, draft OpenBrief sources and outlet policies, apply only after approval through openbrief config.\n", "", 1),
+			},
+			wantErr: "missing required runner guidance",
+		},
+		{
+			name: "old blanket migration refusal",
+			files: map[string]string{
+				"SKILL.md": validSkillMarkdown("OpenBrief") + "\nrecover, infer, or import private source inventory\n",
+			},
+			wantErr: "forbidden product guidance",
+		},
+		{
 			name: "missing referenced file",
 			files: map[string]string{
 				"SKILL.md": validSkillMarkdown("OpenBrief") + "\n[Reference](references/foo.md)\n",
