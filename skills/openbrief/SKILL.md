@@ -83,7 +83,7 @@ Optional generic feed-processing fields:
 
 - `url_canonicalization`: `none`, `feedburner_redirect`, or
   `google_news_article_url`
-- `outlet_extraction`: `none`, `title_suffix`, or `url_host`
+- `outlet_extraction`: `none`, `title_suffix`, `url_host`, or `rss_source`
 - `dedup_group`: string used to collapse same-topic candidates across sources
 - `priority_rank`: lower numbers rank earlier when duplicate candidates compete
 - `always_report`: true makes new feed items `must_include`

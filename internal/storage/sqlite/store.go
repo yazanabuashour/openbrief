@@ -36,6 +36,7 @@ const (
 	OutletExtractionNone        = "none"
 	OutletExtractionTitleSuffix = "title_suffix"
 	OutletExtractionURLHost     = "url_host"
+	OutletExtractionRSSSource   = "rss_source"
 )
 
 var (
@@ -542,9 +543,9 @@ func NormalizeSource(source Source) (Source, error) {
 		return Source{}, fmt.Errorf("source %q url_canonicalization must be none, feedburner_redirect, or google_news_article_url", source.Key)
 	}
 	switch source.OutletExtraction {
-	case OutletExtractionNone, OutletExtractionTitleSuffix, OutletExtractionURLHost:
+	case OutletExtractionNone, OutletExtractionTitleSuffix, OutletExtractionURLHost, OutletExtractionRSSSource:
 	default:
-		return Source{}, fmt.Errorf("source %q outlet_extraction must be none, title_suffix, or url_host", source.Key)
+		return Source{}, fmt.Errorf("source %q outlet_extraction must be none, title_suffix, url_host, or rss_source", source.Key)
 	}
 	switch source.Kind {
 	case SourceKindRSS, SourceKindAtom:

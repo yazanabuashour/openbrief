@@ -142,7 +142,7 @@ func TestReplaceSourcesStoresGenericProcessingFields(t *testing.T) {
 		Threshold:           ThresholdMedium,
 		Enabled:             true,
 		URLCanonicalization: URLCanonicalizationFeedBurnerRedirect,
-		OutletExtraction:    OutletExtractionTitleSuffix,
+		OutletExtraction:    OutletExtractionRSSSource,
 		DedupGroup:          "front-page",
 		PriorityRank:        3,
 		AlwaysReport:        true,
@@ -152,7 +152,7 @@ func TestReplaceSourcesStoresGenericProcessingFields(t *testing.T) {
 	}
 	got := sources[0]
 	if got.URLCanonicalization != URLCanonicalizationFeedBurnerRedirect ||
-		got.OutletExtraction != OutletExtractionTitleSuffix ||
+		got.OutletExtraction != OutletExtractionRSSSource ||
 		got.DedupGroup != "front-page" ||
 		got.PriorityRank != 3 ||
 		!got.AlwaysReport {

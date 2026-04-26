@@ -34,6 +34,7 @@ type fetchedItem struct {
 	PublishedAt string
 	Identity    string
 	Outlet      string
+	RSSSource   string
 }
 
 type unresolvedItem struct {
@@ -535,6 +536,8 @@ func extractOutlet(source Source, item fetchedItem) string {
 			return ""
 		}
 		return strings.TrimPrefix(strings.ToLower(parsed.Hostname()), "www.")
+	case sqlite.OutletExtractionRSSSource:
+		return cleanText(item.RSSSource)
 	default:
 		return ""
 	}
@@ -552,6 +555,9 @@ type rssItem struct {
 	Link    string `xml:"link"`
 	GUID    string `xml:"guid"`
 	PubDate string `xml:"pubDate"`
+	Source  struct {
+		Text string `xml:",chardata"`
+	} `xml:"source"`
 }
 
 type atomFeed struct {
@@ -586,7 +592,7 @@ func parseFeed(body []byte) ([]fetchedItem, error) {
 				identity = title
 			}
 			if title != "" {
-				items = append(items, fetchedItem{Title: title, URL: link, PublishedAt: strings.TrimSpace(item.PubDate), Identity: identity})
+				items = append(items, fetchedItem{Title: title, URL: link, PublishedAt: strings.TrimSpace(item.PubDate), Identity: identity, RSSSource: item.Source.Text})
 			}
 		}
 		return items, nil
