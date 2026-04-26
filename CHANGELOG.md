@@ -5,6 +5,11 @@ published with GitHub Releases and mirrored in `docs/release-notes/`.
 
 ## Releases
 
+- [v0.1.5](https://github.com/yazanabuashour/openbrief/releases/tag/v0.1.5)
+  improves feed canonicalization fallback behavior, memoizes duplicate Google
+  News article resolution within a brief run, and backs off Google News
+  resolution after rate limits or timeouts without changing the runner CLI or
+  install flow.
 - [v0.1.4](https://github.com/yazanabuashour/openbrief/releases/tag/v0.1.4)
   adds a SQLite-backed `max_delivery_items` brief option, exposes the resolved
   limit in runner JSON, updates the production skill to honor it, and adds a
