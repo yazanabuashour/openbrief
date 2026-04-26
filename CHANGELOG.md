@@ -5,6 +5,10 @@ published with GitHub Releases and mirrored in `docs/release-notes/`.
 
 ## Releases
 
+- [v0.1.3](https://github.com/yazanabuashour/openbrief/releases/tag/v0.1.3)
+  bounds feed URL canonicalization work, preserves feed item ordering during
+  parallel resolution, and makes RSS source outlet extraction effective for
+  outlet policy matching without changing the runner CLI or install flow.
 - [v0.1.2](https://github.com/yazanabuashour/openbrief/releases/tag/v0.1.2)
   allows user-directed legacy automation/config migration through a reviewed
   draft-and-apply OpenBrief skill workflow and hardens skill markdown
