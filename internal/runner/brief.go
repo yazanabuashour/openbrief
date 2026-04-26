@@ -6,6 +6,7 @@ import (
 	"regexp"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/yazanabuashour/openbrief/internal/runclient"
@@ -17,6 +18,8 @@ const (
 	BriefActionRecordDelivery = "record_delivery"
 	BriefActionValidate       = "validate"
 )
+
+var sourceFetchConcurrency = 4
 
 var deliveryBulletPattern = regexp.MustCompile(`(?m)^-\s+\[([^\]]+)\]\(<([^>]+)>\)\s*$`)
 
@@ -77,13 +80,15 @@ func runBrief(ctx context.Context, rt *runclient.Runtime, request BriefTaskReque
 	var suppressed []SuppressedItem
 	var statuses []FetchStatus
 	currentWarnings := map[string]string{}
+	fetchResults := fetchSources(ctx, fetcher, sources)
 
-	for _, source := range sources {
+	for i, source := range sources {
 		state, err := store.SourceState(ctx, source.Key)
 		if err != nil {
 			return BriefTaskResult{}, err
 		}
-		output, fetchErr := fetcher.FetchDetailed(ctx, source)
+		output := fetchResults[i].output
+		fetchErr := fetchResults[i].err
 		status := FetchStatus{SourceKey: source.Key, Status: "ok", Items: len(output.Items), SuppressedUnresolved: len(output.Unresolved)}
 		for _, item := range output.Unresolved {
 			suppressedUnresolved = append(suppressedUnresolved, SuppressedUnresolvedItem{
@@ -112,7 +117,7 @@ func runBrief(ctx context.Context, rt *runclient.Runtime, request BriefTaskReque
 		items, policyItems := applyOutletPolicies(source, output.Items, outletPolicies)
 		status.SuppressedPolicy = len(policyItems)
 		suppressedPolicy = append(suppressedPolicy, policyItems...)
-		newItems := selectNewItems(items, state)
+		newItems := selectNewItems(items, state, output.Truncated)
 		status.NewItems = len(newItems)
 		for _, item := range newItems {
 			collected = append(collected, collectedItem{Source: source, Item: item, BriefItem: itemToBriefItem(source, item)})
@@ -198,6 +203,38 @@ func runBrief(ctx context.Context, rt *runclient.Runtime, request BriefTaskReque
 	}, nil
 }
 
+type sourceFetchResult struct {
+	output fetchOutput
+	err    error
+}
+
+func fetchSources(ctx context.Context, fetcher fetcher, sources []Source) []sourceFetchResult {
+	results := make([]sourceFetchResult, len(sources))
+	concurrency := sourceFetchConcurrency
+	if concurrency <= 0 {
+		concurrency = 1
+	}
+	sem := make(chan struct{}, concurrency)
+	var wg sync.WaitGroup
+	for i, source := range sources {
+		wg.Add(1)
+		go func(index int, src Source) {
+			defer wg.Done()
+			select {
+			case sem <- struct{}{}:
+				defer func() { <-sem }()
+			case <-ctx.Done():
+				results[index].err = ctx.Err()
+				return
+			}
+			output, err := fetcher.FetchDetailed(ctx, src)
+			results[index] = sourceFetchResult{output: output, err: err}
+		}(i, source)
+	}
+	wg.Wait()
+	return results
+}
+
 func recordDelivery(ctx context.Context, rt *runclient.Runtime, request BriefTaskRequest) (BriefTaskResult, error) {
 	paths := rt.Paths()
 	if strings.TrimSpace(request.RunID) == "" {
@@ -219,7 +256,7 @@ func recordDelivery(ctx context.Context, rt *runclient.Runtime, request BriefTas
 	}, nil
 }
 
-func selectNewItems(items []fetchedItem, state *sqlite.SourceState) []fetchedItem {
+func selectNewItems(items []fetchedItem, state *sqlite.SourceState, truncated bool) []fetchedItem {
 	if len(items) == 0 {
 		return nil
 	}
@@ -230,6 +267,9 @@ func selectNewItems(items []fetchedItem, state *sqlite.SourceState) []fetchedIte
 		if item.Identity == state.LatestIdentity {
 			return items[:i]
 		}
+	}
+	if truncated {
+		return items
 	}
 	return items[:1]
 }

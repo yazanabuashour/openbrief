@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"encoding/xml"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -11,10 +12,21 @@ import (
 	"os"
 	"regexp"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/yazanabuashour/openbrief/internal/storage/sqlite"
 )
+
+var (
+	canonicalizationMaxAttemptsPerSource = 5
+	canonicalizationConcurrency          = 8
+	canonicalizationTimeout              = 3 * time.Second
+	googleNewsArticleBaseURL             = "https://news.google.com/articles/"
+	googleNewsBatchEndpoint              = "https://news.google.com/_/DotsSplashUi/data/batchexecute"
+)
+
+const canonicalizationSkippedReason = "url canonicalization skipped after 5-item source limit"
 
 type fetchedItem struct {
 	Title       string
@@ -33,14 +45,27 @@ type unresolvedItem struct {
 type fetchOutput struct {
 	Items      []fetchedItem
 	Unresolved []unresolvedItem
+	Truncated  bool
 }
 
 type fetcher struct {
-	client *http.Client
+	client                               *http.Client
+	canonicalizationMaxAttemptsPerSource int
+	canonicalizationConcurrency          int
+	canonicalizationTimeout              time.Duration
+	googleNewsArticleBaseURL             string
+	googleNewsBatchEndpoint              string
 }
 
 func newFetcher() fetcher {
-	return fetcher{client: &http.Client{Timeout: 20 * time.Second}}
+	return fetcher{
+		client:                               &http.Client{Timeout: 20 * time.Second},
+		canonicalizationMaxAttemptsPerSource: canonicalizationMaxAttemptsPerSource,
+		canonicalizationConcurrency:          canonicalizationConcurrency,
+		canonicalizationTimeout:              canonicalizationTimeout,
+		googleNewsArticleBaseURL:             googleNewsArticleBaseURL,
+		googleNewsBatchEndpoint:              googleNewsBatchEndpoint,
+	}
 }
 
 func (f fetcher) Fetch(ctx context.Context, source Source) ([]fetchedItem, error) {
@@ -69,39 +94,173 @@ func (f fetcher) fetchFeed(ctx context.Context, source Source) (fetchOutput, err
 	if err != nil {
 		return fetchOutput{}, err
 	}
-	processed, unresolved, err := f.processFeedItems(ctx, source, items)
-	return fetchOutput{Items: processed, Unresolved: unresolved}, err
+	processed, unresolved, truncated, err := f.processFeedItems(ctx, source, items)
+	return fetchOutput{Items: processed, Unresolved: unresolved, Truncated: truncated}, err
 }
 
-func (f fetcher) processFeedItems(ctx context.Context, source Source, items []fetchedItem) ([]fetchedItem, []unresolvedItem, error) {
+func (f fetcher) processFeedItems(ctx context.Context, source Source, items []fetchedItem) ([]fetchedItem, []unresolvedItem, bool, error) {
+	strategy, err := f.urlCanonicalizationStrategy(source.URLCanonicalization)
+	if err != nil {
+		return nil, nil, false, err
+	}
+	if strategy.networkBacked {
+		return f.processBoundedCanonicalizedFeedItems(ctx, source, items, strategy)
+	}
+	return processLocalFeedItems(source, items), nil, false, nil
+}
+
+type urlCanonicalizationStrategy struct {
+	networkBacked bool
+	shouldAttempt func(string) bool
+	resolve       func(context.Context, string) (string, error)
+}
+
+type feedItemResult struct {
+	item       fetchedItem
+	unresolved unresolvedItem
+	ok         bool
+}
+
+func (f fetcher) urlCanonicalizationStrategy(strategy string) (urlCanonicalizationStrategy, error) {
+	switch strategy {
+	case "", sqlite.URLCanonicalizationNone:
+		return urlCanonicalizationStrategy{}, nil
+	case sqlite.URLCanonicalizationFeedBurnerRedirect:
+		return urlCanonicalizationStrategy{
+			networkBacked: true,
+			shouldAttempt: func(value string) bool {
+				return strings.TrimSpace(value) != ""
+			},
+			resolve: f.followRedirect,
+		}, nil
+	case sqlite.URLCanonicalizationGoogleNewsArticle:
+		return urlCanonicalizationStrategy{
+			networkBacked: true,
+			shouldAttempt: isGoogleNewsArticleURL,
+			resolve:       f.resolveGoogleNewsArticleURL,
+		}, nil
+	default:
+		return urlCanonicalizationStrategy{}, fmt.Errorf("unsupported url canonicalization strategy %q", strategy)
+	}
+}
+
+func processLocalFeedItems(source Source, items []fetchedItem) []fetchedItem {
 	processed := make([]fetchedItem, 0, len(items))
-	var unresolved []unresolvedItem
 	for _, item := range items {
 		next := item
-		canonicalURL, err := f.canonicalizeURL(ctx, source.URLCanonicalization, next.URL)
-		if err != nil {
-			unresolved = append(unresolved, unresolvedItem{
-				Title:  next.Title,
-				URL:    next.URL,
-				Reason: err.Error(),
-			})
-			continue
-		}
-		if canonicalURL != "" {
-			next.URL = canonicalURL
-			if next.Identity == item.URL {
-				next.Identity = canonicalURL
-			}
-		}
 		if outlet := extractOutlet(source, next); outlet != "" {
 			next.Outlet = outlet
 		}
 		processed = append(processed, next)
 	}
-	if len(items) > 0 && len(processed) == 0 && len(unresolved) > 0 {
-		return processed, unresolved, fmt.Errorf("failed to canonicalize any feed item URLs")
+	return processed
+}
+
+func (f fetcher) processBoundedCanonicalizedFeedItems(ctx context.Context, source Source, items []fetchedItem, strategy urlCanonicalizationStrategy) ([]fetchedItem, []unresolvedItem, bool, error) {
+	results := make([]feedItemResult, len(items))
+	attempts := 0
+	truncated := false
+	concurrency := f.canonicalizationConcurrency
+	if concurrency <= 0 {
+		concurrency = 1
 	}
-	return processed, unresolved, nil
+	sem := make(chan struct{}, concurrency)
+	var wg sync.WaitGroup
+
+	for i, item := range items {
+		next := item
+		if !strategy.shouldAttempt(next.URL) {
+			if outlet := extractOutlet(source, next); outlet != "" {
+				next.Outlet = outlet
+			}
+			results[i] = feedItemResult{item: next, ok: true}
+			continue
+		}
+
+		attempts++
+		if f.canonicalizationMaxAttemptsPerSource > 0 && attempts > f.canonicalizationMaxAttemptsPerSource {
+			truncated = true
+			results[i] = feedItemResult{unresolved: unresolvedItem{
+				Title:  next.Title,
+				URL:    next.URL,
+				Reason: canonicalizationSkippedReason,
+			}}
+			continue
+		}
+
+		wg.Add(1)
+		go func(index int, original fetchedItem) {
+			defer wg.Done()
+			select {
+			case sem <- struct{}{}:
+				defer func() { <-sem }()
+			case <-ctx.Done():
+				results[index] = feedItemResult{unresolved: unresolvedFromCanonicalizationError(original, ctx.Err())}
+				return
+			}
+
+			itemCtx := ctx
+			cancel := func() {}
+			if f.canonicalizationTimeout > 0 {
+				itemCtx, cancel = context.WithTimeout(ctx, f.canonicalizationTimeout)
+			}
+			defer cancel()
+
+			canonicalURL, err := strategy.resolve(itemCtx, original.URL)
+			if err != nil {
+				results[index] = feedItemResult{unresolved: unresolvedFromCanonicalizationError(original, err)}
+				return
+			}
+			next := original
+			if canonicalURL != "" {
+				next.URL = canonicalURL
+				if next.Identity == original.URL {
+					next.Identity = canonicalURL
+				}
+			}
+			if outlet := extractOutlet(source, next); outlet != "" {
+				next.Outlet = outlet
+			}
+			results[index] = feedItemResult{item: next, ok: true}
+		}(i, next)
+	}
+
+	wg.Wait()
+
+	processed := make([]fetchedItem, 0, len(items))
+	var unresolved []unresolvedItem
+	for _, result := range results {
+		if result.ok {
+			processed = append(processed, result.item)
+			continue
+		}
+		if result.unresolved.Reason != "" {
+			unresolved = append(unresolved, result.unresolved)
+		}
+	}
+	if len(items) > 0 && len(processed) == 0 && len(unresolved) > 0 {
+		return processed, unresolved, truncated, fmt.Errorf("failed to canonicalize any feed item URLs")
+	}
+	return processed, unresolved, truncated, nil
+}
+
+func unresolvedFromCanonicalizationError(item fetchedItem, err error) unresolvedItem {
+	reason := ""
+	switch {
+	case errors.Is(err, context.DeadlineExceeded):
+		reason = "url canonicalization timed out"
+	case errors.Is(err, context.Canceled):
+		reason = "url canonicalization canceled"
+	case err != nil:
+		reason = err.Error()
+	default:
+		reason = "url canonicalization failed"
+	}
+	return unresolvedItem{
+		Title:  item.Title,
+		URL:    item.URL,
+		Reason: reason,
+	}
 }
 
 func (f fetcher) fetchGitHubReleases(ctx context.Context, source Source) ([]fetchedItem, error) {
@@ -187,23 +346,6 @@ func allowFileURLsForEval() bool {
 	return os.Getenv("OPENBRIEF_EVAL_ALLOW_FILE_URLS") == "1"
 }
 
-func (f fetcher) canonicalizeURL(ctx context.Context, strategy string, value string) (string, error) {
-	value = strings.TrimSpace(value)
-	switch strategy {
-	case "", sqlite.URLCanonicalizationNone:
-		return value, nil
-	case sqlite.URLCanonicalizationFeedBurnerRedirect:
-		return f.followRedirect(ctx, value)
-	case sqlite.URLCanonicalizationGoogleNewsArticle:
-		if !isGoogleNewsArticleURL(value) {
-			return value, nil
-		}
-		return f.resolveGoogleNewsArticleURL(ctx, value)
-	default:
-		return "", fmt.Errorf("unsupported url canonicalization strategy %q", strategy)
-	}
-}
-
 func (f fetcher) followRedirect(ctx context.Context, value string) (string, error) {
 	if value == "" {
 		return "", nil
@@ -241,7 +383,7 @@ func googleNewsArticleID(value string) (string, error) {
 }
 
 func (f fetcher) resolveGoogleNewsArticleURL(ctx context.Context, value string) (string, error) {
-	return f.resolveGoogleNewsArticleURLWithEndpoints(ctx, value, "https://news.google.com/articles/", "https://news.google.com/_/DotsSplashUi/data/batchexecute")
+	return f.resolveGoogleNewsArticleURLWithEndpoints(ctx, value, f.googleNewsArticleBaseURL, f.googleNewsBatchEndpoint)
 }
 
 func (f fetcher) resolveGoogleNewsArticleURLWithEndpoints(ctx context.Context, value string, articleBase string, batchEndpoint string) (string, error) {

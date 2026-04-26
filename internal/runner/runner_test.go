@@ -3,11 +3,13 @@ package runner
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -334,6 +336,57 @@ func TestFeedBurnerRedirectCanonicalization(t *testing.T) {
 	}
 }
 
+func TestFeedBurnerRedirectCanonicalizationPreservesOrder(t *testing.T) {
+	ctx := context.Background()
+	var server *httptest.Server
+	server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/feed":
+			_, _ = w.Write([]byte(rssFixtureItems(
+				rssFixtureItem{title: "First redirect", link: server.URL + "/slow-redirect", guid: server.URL + "/slow-redirect"},
+				rssFixtureItem{title: "Second redirect", link: server.URL + "/fast-redirect", guid: server.URL + "/fast-redirect"},
+				rssFixtureItem{title: "Direct story", link: server.URL + "/direct", guid: "direct-guid"},
+			)))
+		case "/slow-redirect":
+			time.Sleep(25 * time.Millisecond)
+			http.Redirect(w, r, server.URL+"/first-final", http.StatusFound)
+		case "/fast-redirect":
+			http.Redirect(w, r, server.URL+"/second-final", http.StatusFound)
+		case "/first-final", "/second-final", "/direct":
+			_, _ = w.Write([]byte("ok"))
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+
+	fetcher := newFetcher()
+	fetcher.canonicalizationConcurrency = 2
+	output, err := fetcher.FetchDetailed(ctx, Source{
+		Key:                 "feed",
+		Label:               "Feed",
+		Kind:                sqlite.SourceKindRSS,
+		URL:                 server.URL + "/feed",
+		Section:             "technology",
+		Threshold:           sqlite.ThresholdMedium,
+		Enabled:             true,
+		URLCanonicalization: sqlite.URLCanonicalizationFeedBurnerRedirect,
+	})
+	if err != nil {
+		t.Fatalf("FetchDetailed: %v", err)
+	}
+	if len(output.Unresolved) != 0 {
+		t.Fatalf("unresolved = %+v", output.Unresolved)
+	}
+	gotURLs := []string{output.Items[0].URL, output.Items[1].URL, output.Items[2].URL}
+	wantURLs := []string{server.URL + "/first-final", server.URL + "/second-final", server.URL + "/direct"}
+	for i := range wantURLs {
+		if gotURLs[i] != wantURLs[i] {
+			t.Fatalf("urls = %+v", gotURLs)
+		}
+	}
+}
+
 func TestURLHostOutletExtractionUsesCanonicalURL(t *testing.T) {
 	ctx := context.Background()
 	publisher := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
@@ -412,6 +465,308 @@ func TestGoogleNewsArticleURLResolverWithCustomEndpoints(t *testing.T) {
 	}
 	if resolved != "https://publisher.example/story" {
 		t.Fatalf("resolved = %q", resolved)
+	}
+}
+
+func TestGoogleNewsFeedCanonicalizationParallelPreservesOrder(t *testing.T) {
+	ctx := context.Background()
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/feed":
+			_, _ = w.Write([]byte(rssFixtureItems(
+				rssFixtureItem{title: "First", link: "https://news.google.com/rss/articles/article-one?hl=en-US", guid: "https://news.google.com/rss/articles/article-one?hl=en-US"},
+				rssFixtureItem{title: "Direct", link: "https://direct.example/story", guid: "direct-guid"},
+				rssFixtureItem{title: "Second", link: "https://news.google.com/rss/articles/article-two?hl=en-US", guid: "https://news.google.com/rss/articles/article-two?hl=en-US"},
+			)))
+		case "/articles/article-one", "/articles/article-two":
+			_, _ = w.Write([]byte(`<c-wiz data-n-a-sg="signature" data-n-a-ts="1775407930"></c-wiz>`))
+		case "/batch":
+			_ = r.ParseForm()
+			body := r.Form.Get("f.req")
+			switch {
+			case strings.Contains(body, "article-one"):
+				time.Sleep(25 * time.Millisecond)
+				_, _ = w.Write(googleNewsBatchResponse(t, "https://publisher.example/one"))
+			case strings.Contains(body, "article-two"):
+				_, _ = w.Write(googleNewsBatchResponse(t, "https://publisher.example/two"))
+			default:
+				t.Fatalf("batch body missing article id: %s", body)
+			}
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+
+	fetcher := newFetcher()
+	fetcher.googleNewsArticleBaseURL = server.URL + "/articles/"
+	fetcher.googleNewsBatchEndpoint = server.URL + "/batch"
+	output, err := fetcher.FetchDetailed(ctx, Source{
+		Key:                 "google",
+		Label:               "Google",
+		Kind:                sqlite.SourceKindRSS,
+		URL:                 server.URL + "/feed",
+		Section:             "technology",
+		Threshold:           sqlite.ThresholdMedium,
+		Enabled:             true,
+		URLCanonicalization: sqlite.URLCanonicalizationGoogleNewsArticle,
+	})
+	if err != nil {
+		t.Fatalf("FetchDetailed: %v", err)
+	}
+	if len(output.Unresolved) != 0 {
+		t.Fatalf("unresolved = %+v", output.Unresolved)
+	}
+	if len(output.Items) != 3 {
+		t.Fatalf("items = %+v", output.Items)
+	}
+	gotURLs := []string{output.Items[0].URL, output.Items[1].URL, output.Items[2].URL}
+	wantURLs := []string{"https://publisher.example/one", "https://direct.example/story", "https://publisher.example/two"}
+	for i := range wantURLs {
+		if gotURLs[i] != wantURLs[i] {
+			t.Fatalf("urls = %+v", gotURLs)
+		}
+	}
+	if output.Items[0].Identity != "https://publisher.example/one" || output.Items[2].Identity != "https://publisher.example/two" {
+		t.Fatalf("items = %+v", output.Items)
+	}
+}
+
+func TestBoundedFeedCanonicalizationTimeoutSuppressesUnresolved(t *testing.T) {
+	ctx := context.Background()
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/feed":
+			_, _ = w.Write([]byte(rssFixture("Slow story", "https://news.google.com/rss/articles/slow-story?hl=en-US", "slow-guid")))
+		case "/articles/slow-story":
+			time.Sleep(200 * time.Millisecond)
+			_, _ = w.Write([]byte(`<c-wiz data-n-a-sg="signature" data-n-a-ts="1775407930"></c-wiz>`))
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+	withCanonicalizationTestSettings(t, server.URL+"/articles/", server.URL+"/batch", 5, 1, 4, 20*time.Millisecond)
+
+	cfg := testConfig(t)
+	configureSource(t, cfg, Source{
+		Key:                 "slow-google",
+		Label:               "Slow Google",
+		Kind:                sqlite.SourceKindRSS,
+		URL:                 server.URL + "/feed",
+		Section:             "technology",
+		Threshold:           sqlite.ThresholdMedium,
+		Enabled:             true,
+		URLCanonicalization: sqlite.URLCanonicalizationGoogleNewsArticle,
+	})
+
+	start := time.Now()
+	result, err := RunBriefTask(ctx, cfg, BriefTaskRequest{Action: BriefActionRun, DryRun: true})
+	if err != nil {
+		t.Fatalf("RunBriefTask: %v", err)
+	}
+	if elapsed := time.Since(start); elapsed > 500*time.Millisecond {
+		t.Fatalf("RunBriefTask took %s", elapsed)
+	}
+	if len(result.SuppressedUnresolved) != 1 || result.SuppressedUnresolved[0].Reason != "url canonicalization timed out" {
+		t.Fatalf("suppressed unresolved = %+v", result.SuppressedUnresolved)
+	}
+	if len(result.FetchStatus) != 1 || result.FetchStatus[0].SuppressedUnresolved != 1 || result.FetchStatus[0].Status != "error" {
+		t.Fatalf("fetch status = %+v", result.FetchStatus)
+	}
+}
+
+func TestBoundedFeedCanonicalizationSourceLimitSuppressesExcessItems(t *testing.T) {
+	ctx := context.Background()
+	var articleRequests atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.URL.Path == "/feed":
+			var items []rssFixtureItem
+			for i := 1; i <= 7; i++ {
+				id := fmt.Sprintf("article-%d", i)
+				link := "https://news.google.com/rss/articles/" + id + "?hl=en-US"
+				items = append(items, rssFixtureItem{title: fmt.Sprintf("Story %d", i), link: link, guid: link})
+			}
+			_, _ = w.Write([]byte(rssFixtureItems(items...)))
+		case strings.HasPrefix(r.URL.Path, "/articles/article-"):
+			articleRequests.Add(1)
+			_, _ = w.Write([]byte(`<c-wiz data-n-a-sg="signature" data-n-a-ts="1775407930"></c-wiz>`))
+		case r.URL.Path == "/batch":
+			_ = r.ParseForm()
+			id := firstRequestedArticleID(r.Form.Get("f.req"))
+			if id == "" {
+				t.Fatalf("batch body missing article id: %s", r.Form.Get("f.req"))
+			}
+			_, _ = w.Write(googleNewsBatchResponse(t, "https://publisher.example/"+id))
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+	withCanonicalizationTestSettings(t, server.URL+"/articles/", server.URL+"/batch", 5, 8, 4, time.Second)
+
+	cfg := testConfig(t)
+	configureSource(t, cfg, Source{
+		Key:                 "limited-google",
+		Label:               "Limited Google",
+		Kind:                sqlite.SourceKindRSS,
+		URL:                 server.URL + "/feed",
+		Section:             "technology",
+		Threshold:           sqlite.ThresholdMedium,
+		Enabled:             true,
+		URLCanonicalization: sqlite.URLCanonicalizationGoogleNewsArticle,
+	})
+
+	result, err := RunBriefTask(ctx, cfg, BriefTaskRequest{Action: BriefActionRun, DryRun: true})
+	if err != nil {
+		t.Fatalf("RunBriefTask: %v", err)
+	}
+	if articleRequests.Load() != 5 {
+		t.Fatalf("article requests = %d", articleRequests.Load())
+	}
+	if len(result.SuppressedUnresolved) != 2 {
+		t.Fatalf("suppressed unresolved = %+v", result.SuppressedUnresolved)
+	}
+	for _, item := range result.SuppressedUnresolved {
+		if item.Reason != canonicalizationSkippedReason {
+			t.Fatalf("suppressed unresolved = %+v", result.SuppressedUnresolved)
+		}
+	}
+	if len(result.FetchStatus) != 1 || result.FetchStatus[0].Items != 5 || result.FetchStatus[0].SuppressedUnresolved != 2 {
+		t.Fatalf("fetch status = %+v", result.FetchStatus)
+	}
+}
+
+func TestBoundedFeedCanonicalizationLimitKeepsProcessedItemsBeforeState(t *testing.T) {
+	ctx := context.Background()
+	var articleRequests atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.URL.Path == "/feed":
+			var items []rssFixtureItem
+			for i := 1; i <= 6; i++ {
+				id := fmt.Sprintf("article-%d", i)
+				link := "https://news.google.com/rss/articles/" + id + "?hl=en-US"
+				items = append(items, rssFixtureItem{title: fmt.Sprintf("Story %d", i), link: link, guid: link})
+			}
+			_, _ = w.Write([]byte(rssFixtureItems(items...)))
+		case strings.HasPrefix(r.URL.Path, "/articles/article-"):
+			articleRequests.Add(1)
+			_, _ = w.Write([]byte(`<c-wiz data-n-a-sg="signature" data-n-a-ts="1775407930"></c-wiz>`))
+		case r.URL.Path == "/batch":
+			_ = r.ParseForm()
+			id := firstRequestedArticleID(r.Form.Get("f.req"))
+			if id == "" {
+				t.Fatalf("batch body missing article id: %s", r.Form.Get("f.req"))
+			}
+			_, _ = w.Write(googleNewsBatchResponse(t, "https://publisher.example/"+id))
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+	withCanonicalizationTestSettings(t, server.URL+"/articles/", server.URL+"/batch", 5, 8, 4, time.Second)
+
+	cfg := testConfig(t)
+	configureSource(t, cfg, Source{
+		Key:                 "limited-google",
+		Label:               "Limited Google",
+		Kind:                sqlite.SourceKindRSS,
+		URL:                 server.URL + "/feed",
+		Section:             "technology",
+		Threshold:           sqlite.ThresholdMedium,
+		Enabled:             true,
+		URLCanonicalization: sqlite.URLCanonicalizationGoogleNewsArticle,
+	})
+	seedSourceState(t, cfg, sqlite.SourceState{
+		SourceKey:         "limited-google",
+		LatestIdentity:    "https://publisher.example/article-6",
+		LatestTitle:       "Story 6",
+		LatestURL:         "https://publisher.example/article-6",
+		LatestPublishedAt: "Thu, 23 Apr 2026 00:00:00 GMT",
+	})
+
+	result, err := RunBriefTask(ctx, cfg, BriefTaskRequest{Action: BriefActionRun})
+	if err != nil {
+		t.Fatalf("RunBriefTask: %v", err)
+	}
+	if articleRequests.Load() != 5 {
+		t.Fatalf("article requests = %d", articleRequests.Load())
+	}
+	if len(result.Candidates) != 5 {
+		t.Fatalf("candidates = %+v", result.Candidates)
+	}
+	if len(result.FetchStatus) != 1 || result.FetchStatus[0].Items != 5 || result.FetchStatus[0].SuppressedUnresolved != 1 {
+		t.Fatalf("fetch status = %+v", result.FetchStatus)
+	}
+	state := sourceState(t, cfg, "limited-google")
+	if state.LatestIdentity != "https://publisher.example/article-1" {
+		t.Fatalf("source state = %+v", state)
+	}
+}
+
+func TestManyBoundedFeedCanonicalizationSourcesCompleteWithinBoundedWindow(t *testing.T) {
+	ctx := context.Background()
+	var activeArticles atomic.Int32
+	var maxActiveArticles atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case strings.HasPrefix(r.URL.Path, "/feed/"):
+			sourceKey := strings.TrimPrefix(r.URL.Path, "/feed/")
+			link := "https://news.google.com/rss/articles/" + sourceKey + "?hl=en-US"
+			_, _ = w.Write([]byte(rssFixture("Slow "+sourceKey, link, link)))
+		case strings.HasPrefix(r.URL.Path, "/articles/source-"):
+			next := activeArticles.Add(1)
+			updateMaxAtomic(&maxActiveArticles, next)
+			time.Sleep(200 * time.Millisecond)
+			activeArticles.Add(-1)
+			_, _ = w.Write([]byte(`<c-wiz data-n-a-sg="signature" data-n-a-ts="1775407930"></c-wiz>`))
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+	withCanonicalizationTestSettings(t, server.URL+"/articles/", server.URL+"/batch", 5, 1, 4, 40*time.Millisecond)
+
+	cfg := testConfig(t)
+	var sources []Source
+	for i := 0; i < 8; i++ {
+		key := fmt.Sprintf("source-%02d", i)
+		sources = append(sources, Source{
+			Key:                 key,
+			Label:               "Source " + key,
+			Kind:                sqlite.SourceKindRSS,
+			URL:                 server.URL + "/feed/" + key,
+			Section:             "technology",
+			Threshold:           sqlite.ThresholdMedium,
+			Enabled:             true,
+			URLCanonicalization: sqlite.URLCanonicalizationGoogleNewsArticle,
+		})
+	}
+	configureSources(t, cfg, sources)
+
+	start := time.Now()
+	result, err := RunBriefTask(ctx, cfg, BriefTaskRequest{Action: BriefActionRun, DryRun: true})
+	if err != nil {
+		t.Fatalf("RunBriefTask: %v", err)
+	}
+	if elapsed := time.Since(start); elapsed > 500*time.Millisecond {
+		t.Fatalf("RunBriefTask took %s", elapsed)
+	}
+	if maxActiveArticles.Load() < 2 {
+		t.Fatalf("max active article requests = %d", maxActiveArticles.Load())
+	}
+	if len(result.SuppressedUnresolved) != len(sources) {
+		t.Fatalf("suppressed unresolved = %+v", result.SuppressedUnresolved)
+	}
+	if len(result.FetchStatus) != len(sources) {
+		t.Fatalf("fetch status = %+v", result.FetchStatus)
+	}
+	for _, status := range result.FetchStatus {
+		if status.SuppressedUnresolved != 1 || status.Status != "error" {
+			t.Fatalf("fetch status = %+v", result.FetchStatus)
+		}
 	}
 }
 
@@ -697,9 +1052,122 @@ func configureOutletPolicies(t *testing.T, cfg runclient.Config, outlets []Outle
 	}
 }
 
+func seedSourceState(t *testing.T, cfg runclient.Config, state sqlite.SourceState) {
+	t.Helper()
+	rt, err := runclient.Open(context.Background(), cfg)
+	if err != nil {
+		t.Fatalf("open runtime: %v", err)
+	}
+	defer func() {
+		_ = rt.Close()
+	}()
+	if err := rt.Store().UpsertSourceState(context.Background(), state); err != nil {
+		t.Fatalf("upsert source state: %v", err)
+	}
+}
+
+func sourceState(t *testing.T, cfg runclient.Config, sourceKey string) *sqlite.SourceState {
+	t.Helper()
+	rt, err := runclient.Open(context.Background(), cfg)
+	if err != nil {
+		t.Fatalf("open runtime: %v", err)
+	}
+	defer func() {
+		_ = rt.Close()
+	}()
+	state, err := rt.Store().SourceState(context.Background(), sourceKey)
+	if err != nil {
+		t.Fatalf("source state: %v", err)
+	}
+	if state == nil {
+		t.Fatalf("source state %q is nil", sourceKey)
+	}
+	return state
+}
+
 func rssFixture(title, link, guid string) string {
-	return `<?xml version="1.0"?>
+	return rssFixtureItems(rssFixtureItem{title: title, link: link, guid: guid})
+}
+
+type rssFixtureItem struct {
+	title string
+	link  string
+	guid  string
+}
+
+func rssFixtureItems(items ...rssFixtureItem) string {
+	var builder strings.Builder
+	builder.WriteString(`<?xml version="1.0"?>
 <rss version="2.0"><channel>
-<item><title>` + title + `</title><link>` + link + `</link><guid>` + guid + `</guid><pubDate>Thu, 23 Apr 2026 00:00:00 GMT</pubDate></item>
-</channel></rss>`
+`)
+	for _, item := range items {
+		builder.WriteString(`<item><title>`)
+		builder.WriteString(item.title)
+		builder.WriteString(`</title><link>`)
+		builder.WriteString(item.link)
+		builder.WriteString(`</link><guid>`)
+		builder.WriteString(item.guid)
+		builder.WriteString(`</guid><pubDate>Thu, 23 Apr 2026 00:00:00 GMT</pubDate></item>
+`)
+	}
+	builder.WriteString(`</channel></rss>`)
+	return builder.String()
+}
+
+func googleNewsBatchResponse(t *testing.T, publisherURL string) []byte {
+	t.Helper()
+	decoded, err := json.Marshal([]any{nil, publisherURL})
+	if err != nil {
+		t.Fatalf("marshal decoded batch response: %v", err)
+	}
+	rows, err := json.Marshal([]any{[]any{"wrb.fr", "Fbv4je", string(decoded)}})
+	if err != nil {
+		t.Fatalf("marshal batch response rows: %v", err)
+	}
+	return []byte(")]}'\n\n" + string(rows))
+}
+
+func firstRequestedArticleID(value string) string {
+	for i := 1; i <= 7; i++ {
+		id := fmt.Sprintf("article-%d", i)
+		if strings.Contains(value, id) {
+			return id
+		}
+	}
+	return ""
+}
+
+func updateMaxAtomic(maxValue *atomic.Int32, value int32) {
+	for {
+		current := maxValue.Load()
+		if value <= current || maxValue.CompareAndSwap(current, value) {
+			return
+		}
+	}
+}
+
+func withCanonicalizationTestSettings(t *testing.T, articleBaseURL string, batchEndpoint string, maxAttempts int, itemConcurrency int, sourceConcurrency int, timeout time.Duration) {
+	t.Helper()
+	originalMaxAttempts := canonicalizationMaxAttemptsPerSource
+	originalItemConcurrency := canonicalizationConcurrency
+	originalTimeout := canonicalizationTimeout
+	originalArticleBaseURL := googleNewsArticleBaseURL
+	originalBatchEndpoint := googleNewsBatchEndpoint
+	originalSourceConcurrency := sourceFetchConcurrency
+
+	canonicalizationMaxAttemptsPerSource = maxAttempts
+	canonicalizationConcurrency = itemConcurrency
+	canonicalizationTimeout = timeout
+	googleNewsArticleBaseURL = articleBaseURL
+	googleNewsBatchEndpoint = batchEndpoint
+	sourceFetchConcurrency = sourceConcurrency
+
+	t.Cleanup(func() {
+		canonicalizationMaxAttemptsPerSource = originalMaxAttempts
+		canonicalizationConcurrency = originalItemConcurrency
+		canonicalizationTimeout = originalTimeout
+		googleNewsArticleBaseURL = originalArticleBaseURL
+		googleNewsBatchEndpoint = originalBatchEndpoint
+		sourceFetchConcurrency = originalSourceConcurrency
+	})
 }
