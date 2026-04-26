@@ -683,6 +683,58 @@ func TestURLHostOutletExtractionUsesCanonicalURL(t *testing.T) {
 	}
 }
 
+func TestURLHostOutletExtractionSuppressesCanonicalizationFailureFallback(t *testing.T) {
+	ctx := context.Background()
+	publisher := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte("ok"))
+	}))
+	defer publisher.Close()
+	publisherURL := strings.Replace(publisher.URL, "127.0.0.1", "localhost", 1)
+	var feed *httptest.Server
+	feed = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/feed":
+			_, _ = w.Write([]byte(rssFixture("Redirected publisher story", feed.URL+"/redirect", feed.URL+"/redirect")))
+		case "/redirect":
+			time.Sleep(200 * time.Millisecond)
+			http.Redirect(w, r, publisherURL+"/story", http.StatusFound)
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer feed.Close()
+	withCanonicalizationTestSettings(t, "", "", 5, 1, 4, 20*time.Millisecond)
+
+	cfg := testConfig(t)
+	configureSources(t, cfg, []Source{{
+		Key:                 "feed",
+		Label:               "Feed",
+		Kind:                sqlite.SourceKindRSS,
+		URL:                 feed.URL + "/feed",
+		Section:             "technology",
+		Threshold:           sqlite.ThresholdMedium,
+		Enabled:             true,
+		URLCanonicalization: sqlite.URLCanonicalizationFeedBurnerRedirect,
+		OutletExtraction:    sqlite.OutletExtractionURLHost,
+	}})
+	configureOutletPolicies(t, cfg, []sqlite.OutletPolicy{{
+		Name:    "localhost",
+		Policy:  "block",
+		Enabled: true,
+	}})
+
+	result, err := RunBriefTask(ctx, cfg, BriefTaskRequest{Action: BriefActionRun, DryRun: true})
+	if err != nil {
+		t.Fatalf("RunBriefTask: %v", err)
+	}
+	if len(result.Candidates) != 0 || len(result.SuppressedUnresolved) != 1 || len(result.SuppressedPolicy) != 0 {
+		t.Fatalf("result = %+v", result)
+	}
+	if len(result.FetchStatus) != 1 || result.FetchStatus[0].Items != 0 || result.FetchStatus[0].SuppressedUnresolved != 1 {
+		t.Fatalf("fetch status = %+v", result.FetchStatus)
+	}
+}
+
 func TestGoogleNewsArticleURLResolverWithCustomEndpoints(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
@@ -778,7 +830,7 @@ func TestGoogleNewsFeedCanonicalizationParallelPreservesOrder(t *testing.T) {
 	}
 }
 
-func TestBoundedFeedCanonicalizationTimeoutSuppressesUnresolved(t *testing.T) {
+func TestBoundedFeedCanonicalizationTimeoutFallsBackToOriginalItem(t *testing.T) {
 	ctx := context.Background()
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
@@ -814,11 +866,80 @@ func TestBoundedFeedCanonicalizationTimeoutSuppressesUnresolved(t *testing.T) {
 	if elapsed := time.Since(start); elapsed > 500*time.Millisecond {
 		t.Fatalf("RunBriefTask took %s", elapsed)
 	}
+	if len(result.Candidates) != 1 || result.Candidates[0].URL != "https://news.google.com/rss/articles/slow-story?hl=en-US" {
+		t.Fatalf("candidates = %+v", result.Candidates)
+	}
 	if len(result.SuppressedUnresolved) != 1 || result.SuppressedUnresolved[0].Reason != "url canonicalization timed out" {
 		t.Fatalf("suppressed unresolved = %+v", result.SuppressedUnresolved)
 	}
-	if len(result.FetchStatus) != 1 || result.FetchStatus[0].SuppressedUnresolved != 1 || result.FetchStatus[0].Status != "error" {
+	if len(result.FetchStatus) != 1 || result.FetchStatus[0].SuppressedUnresolved != 1 || result.FetchStatus[0].Status != "ok" || result.FetchStatus[0].Items != 1 {
 		t.Fatalf("fetch status = %+v", result.FetchStatus)
+	}
+}
+
+func TestCanonicalizationFallbackStateMatchesLaterCanonicalIdentity(t *testing.T) {
+	ctx := context.Background()
+	publisher := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte("ok"))
+	}))
+	defer publisher.Close()
+
+	var slow atomic.Bool
+	slow.Store(true)
+	var feed *httptest.Server
+	feed = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/feed":
+			link := feed.URL + "/redirect"
+			_, _ = w.Write([]byte(rssFixture("Same story", link, link)))
+		case "/redirect":
+			if slow.Load() {
+				time.Sleep(200 * time.Millisecond)
+			}
+			http.Redirect(w, r, publisher.URL+"/story", http.StatusFound)
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer feed.Close()
+	withCanonicalizationTestSettings(t, "", "", 5, 1, 4, 20*time.Millisecond)
+
+	cfg := testConfig(t)
+	configureSource(t, cfg, Source{
+		Key:                 "redirecting-feed",
+		Label:               "Redirecting Feed",
+		Kind:                sqlite.SourceKindRSS,
+		URL:                 feed.URL + "/feed",
+		Section:             "technology",
+		Threshold:           sqlite.ThresholdMedium,
+		Enabled:             true,
+		URLCanonicalization: sqlite.URLCanonicalizationFeedBurnerRedirect,
+	})
+
+	first, err := RunBriefTask(ctx, cfg, BriefTaskRequest{Action: BriefActionRun})
+	if err != nil {
+		t.Fatalf("first RunBriefTask: %v", err)
+	}
+	if len(first.Candidates) != 1 || len(first.SuppressedUnresolved) != 1 {
+		t.Fatalf("first result = %+v", first)
+	}
+	originalIdentity := feed.URL + "/redirect"
+	state := sourceState(t, cfg, "redirecting-feed")
+	if state.LatestIdentity != originalIdentity || state.LatestFeedIdentity != originalIdentity {
+		t.Fatalf("source state = %+v", state)
+	}
+
+	slow.Store(false)
+	second, err := RunBriefTask(ctx, cfg, BriefTaskRequest{Action: BriefActionRun})
+	if err != nil {
+		t.Fatalf("second RunBriefTask: %v", err)
+	}
+	if len(second.Candidates) != 0 || len(second.SuppressedUnresolved) != 0 {
+		t.Fatalf("second result = %+v", second)
+	}
+	state = sourceState(t, cfg, "redirecting-feed")
+	if state.LatestIdentity != publisher.URL+"/story" || state.LatestFeedIdentity != originalIdentity {
+		t.Fatalf("source state = %+v", state)
 	}
 }
 
@@ -1010,7 +1131,7 @@ func TestManyBoundedFeedCanonicalizationSourcesCompleteWithinBoundedWindow(t *te
 		t.Fatalf("fetch status = %+v", result.FetchStatus)
 	}
 	for _, status := range result.FetchStatus {
-		if status.SuppressedUnresolved != 1 || status.Status != "error" {
+		if status.SuppressedUnresolved != 1 || status.Status != "ok" {
 			t.Fatalf("fetch status = %+v", result.FetchStatus)
 		}
 	}
@@ -1131,6 +1252,56 @@ func TestHealthWarningNewAndResolved(t *testing.T) {
 	}
 	if second.HealthFootnote == "" || len(second.HealthDelta.ResolvedWarnings) != 1 {
 		t.Fatalf("second = %+v", second)
+	}
+}
+
+func TestTransientFetchFailureIsSourceScoped(t *testing.T) {
+	ctx := context.Background()
+	healthy := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte(rssFixture("Healthy item", "https://example.com/healthy", "healthy-guid")))
+	}))
+	defer healthy.Close()
+
+	cfg := testConfig(t)
+	configureSources(t, cfg, []Source{
+		{
+			Key:       "broken",
+			Label:     "Broken",
+			Kind:      sqlite.SourceKindRSS,
+			URL:       "https://127.0.0.1:1/no-feed.xml",
+			Section:   "technology",
+			Threshold: sqlite.ThresholdMedium,
+			Enabled:   true,
+		},
+		{
+			Key:       "healthy",
+			Label:     "Healthy",
+			Kind:      sqlite.SourceKindRSS,
+			URL:       healthy.URL,
+			Section:   "technology",
+			Threshold: sqlite.ThresholdMedium,
+			Enabled:   true,
+		},
+	})
+
+	result, err := RunBriefTask(ctx, cfg, BriefTaskRequest{Action: BriefActionRun, DryRun: true})
+	if err != nil {
+		t.Fatalf("RunBriefTask: %v", err)
+	}
+	if len(result.Candidates) != 1 || result.Candidates[0].Title != "Healthy item" {
+		t.Fatalf("candidates = %+v", result.Candidates)
+	}
+	if len(result.FetchStatus) != 2 {
+		t.Fatalf("fetch status = %+v", result.FetchStatus)
+	}
+	if result.FetchStatus[0].SourceKey != "broken" || result.FetchStatus[0].Status != "error" {
+		t.Fatalf("fetch status = %+v", result.FetchStatus)
+	}
+	if result.FetchStatus[1].SourceKey != "healthy" || result.FetchStatus[1].Status != "ok" {
+		t.Fatalf("fetch status = %+v", result.FetchStatus)
+	}
+	if len(result.HealthDelta.NewWarnings) != 1 || !strings.Contains(result.HealthDelta.NewWarnings[0], "broken") {
+		t.Fatalf("health delta = %+v", result.HealthDelta)
 	}
 }
 

@@ -86,12 +86,13 @@ type OutletPolicy struct {
 }
 
 type SourceState struct {
-	SourceKey         string
-	LatestIdentity    string
-	LatestTitle       string
-	LatestURL         string
-	LatestPublishedAt string
-	CheckedAt         time.Time
+	SourceKey          string
+	LatestIdentity     string
+	LatestFeedIdentity string
+	LatestTitle        string
+	LatestURL          string
+	LatestPublishedAt  string
+	CheckedAt          time.Time
 }
 
 type FetchLog struct {
@@ -202,6 +203,7 @@ func (s *Store) initSchema(ctx context.Context) error {
 		`CREATE TABLE IF NOT EXISTS source_state (
 			source_key TEXT PRIMARY KEY REFERENCES brief_source(key) ON DELETE CASCADE,
 			latest_identity TEXT NOT NULL,
+			latest_feed_identity TEXT NOT NULL DEFAULT '',
 			latest_title TEXT NOT NULL,
 			latest_url TEXT NOT NULL,
 			latest_published_at TEXT NOT NULL,
@@ -283,6 +285,9 @@ func (s *Store) migrateSchema(ctx context.Context) error {
 		if err := s.ensureColumn(ctx, "brief_source", column.name, column.def); err != nil {
 			return err
 		}
+	}
+	if err := s.ensureColumn(ctx, "source_state", "latest_feed_identity", "TEXT NOT NULL DEFAULT ''"); err != nil {
+		return err
 	}
 	now := s.now().Format(time.RFC3339Nano)
 	if _, err := s.db.ExecContext(ctx, `
@@ -700,11 +705,11 @@ func normalizeOutletPolicies(policies []OutletPolicy) ([]OutletPolicy, error) {
 
 func (s *Store) SourceState(ctx context.Context, sourceKey string) (*SourceState, error) {
 	row := s.db.QueryRowContext(ctx, `
-SELECT source_key, latest_identity, latest_title, latest_url, latest_published_at, checked_at
+SELECT source_key, latest_identity, latest_feed_identity, latest_title, latest_url, latest_published_at, checked_at
 FROM source_state WHERE source_key = ?`, sourceKey)
 	var state SourceState
 	var checkedAt string
-	if err := row.Scan(&state.SourceKey, &state.LatestIdentity, &state.LatestTitle, &state.LatestURL, &state.LatestPublishedAt, &checkedAt); err != nil {
+	if err := row.Scan(&state.SourceKey, &state.LatestIdentity, &state.LatestFeedIdentity, &state.LatestTitle, &state.LatestURL, &state.LatestPublishedAt, &checkedAt); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil, nil
 		}
@@ -724,15 +729,16 @@ func (s *Store) UpsertSourceState(ctx context.Context, state SourceState) error 
 		checkedAt = s.now()
 	}
 	_, err := s.db.ExecContext(ctx, `
-INSERT INTO source_state (source_key, latest_identity, latest_title, latest_url, latest_published_at, checked_at)
-VALUES (?, ?, ?, ?, ?, ?)
+INSERT INTO source_state (source_key, latest_identity, latest_feed_identity, latest_title, latest_url, latest_published_at, checked_at)
+VALUES (?, ?, ?, ?, ?, ?, ?)
 ON CONFLICT(source_key) DO UPDATE SET
 	latest_identity = excluded.latest_identity,
+	latest_feed_identity = excluded.latest_feed_identity,
 	latest_title = excluded.latest_title,
 	latest_url = excluded.latest_url,
 	latest_published_at = excluded.latest_published_at,
 	checked_at = excluded.checked_at`,
-		state.SourceKey, state.LatestIdentity, state.LatestTitle, state.LatestURL, state.LatestPublishedAt, checkedAt.UTC().Format(time.RFC3339Nano))
+		state.SourceKey, state.LatestIdentity, state.LatestFeedIdentity, state.LatestTitle, state.LatestURL, state.LatestPublishedAt, checkedAt.UTC().Format(time.RFC3339Nano))
 	return err
 }
 

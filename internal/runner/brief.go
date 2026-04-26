@@ -126,12 +126,13 @@ func runBrief(ctx context.Context, rt *runclient.Runtime, request BriefTaskReque
 			if len(items) > 0 {
 				top := items[0]
 				if err := store.UpsertSourceState(ctx, sqlite.SourceState{
-					SourceKey:         source.Key,
-					LatestIdentity:    top.Identity,
-					LatestTitle:       top.Title,
-					LatestURL:         top.URL,
-					LatestPublishedAt: top.PublishedAt,
-					CheckedAt:         time.Now().UTC(),
+					SourceKey:          source.Key,
+					LatestIdentity:     top.Identity,
+					LatestFeedIdentity: top.feedIdentity(),
+					LatestTitle:        top.Title,
+					LatestURL:          top.URL,
+					LatestPublishedAt:  top.PublishedAt,
+					CheckedAt:          time.Now().UTC(),
 				}); err != nil {
 					return BriefTaskResult{}, err
 				}
@@ -269,7 +270,7 @@ func selectNewItems(items []fetchedItem, state *sqlite.SourceState, truncated bo
 		return items[:1]
 	}
 	for i, item := range items {
-		if item.Identity == state.LatestIdentity {
+		if itemMatchesSourceState(item, state) {
 			return items[:i]
 		}
 	}
@@ -277,6 +278,25 @@ func selectNewItems(items []fetchedItem, state *sqlite.SourceState, truncated bo
 		return items
 	}
 	return items[:1]
+}
+
+func itemMatchesSourceState(item fetchedItem, state *sqlite.SourceState) bool {
+	if state == nil {
+		return false
+	}
+	itemIdentities := []string{item.Identity, item.feedIdentity()}
+	stateIdentities := []string{state.LatestIdentity, state.LatestFeedIdentity}
+	for _, itemIdentity := range itemIdentities {
+		if strings.TrimSpace(itemIdentity) == "" {
+			continue
+		}
+		for _, stateIdentity := range stateIdentities {
+			if itemIdentity == stateIdentity {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 func itemToBriefItem(source Source, item fetchedItem) BriefItem {

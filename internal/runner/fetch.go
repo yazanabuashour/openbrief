@@ -29,12 +29,13 @@ var (
 const canonicalizationSkippedReason = "url canonicalization skipped after 5-item source limit"
 
 type fetchedItem struct {
-	Title       string
-	URL         string
-	PublishedAt string
-	Identity    string
-	Outlet      string
-	RSSSource   string
+	Title        string
+	URL          string
+	PublishedAt  string
+	Identity     string
+	FeedIdentity string
+	Outlet       string
+	RSSSource    string
 }
 
 type unresolvedItem struct {
@@ -209,10 +210,24 @@ func (f fetcher) processBoundedCanonicalizedFeedItems(ctx context.Context, sourc
 
 			canonicalURL, err := strategy.resolve(itemCtx, original.URL)
 			if err != nil {
-				results[index] = feedItemResult{unresolved: unresolvedFromCanonicalizationError(original, err)}
+				if source.OutletExtraction == sqlite.OutletExtractionURLHost {
+					results[index] = feedItemResult{unresolved: unresolvedFromCanonicalizationError(original, err)}
+					return
+				}
+				next := original
+				next.FeedIdentity = original.feedIdentity()
+				if outlet := extractOutlet(source, next); outlet != "" {
+					next.Outlet = outlet
+				}
+				results[index] = feedItemResult{
+					item:       next,
+					unresolved: unresolvedFromCanonicalizationError(original, err),
+					ok:         true,
+				}
 				return
 			}
 			next := original
+			next.FeedIdentity = original.feedIdentity()
 			if canonicalURL != "" {
 				next.URL = canonicalURL
 				if next.Identity == original.URL {
@@ -233,16 +248,19 @@ func (f fetcher) processBoundedCanonicalizedFeedItems(ctx context.Context, sourc
 	for _, result := range results {
 		if result.ok {
 			processed = append(processed, result.item)
-			continue
 		}
 		if result.unresolved.Reason != "" {
 			unresolved = append(unresolved, result.unresolved)
 		}
 	}
-	if len(items) > 0 && len(processed) == 0 && len(unresolved) > 0 {
-		return processed, unresolved, truncated, fmt.Errorf("failed to canonicalize any feed item URLs")
-	}
 	return processed, unresolved, truncated, nil
+}
+
+func (item fetchedItem) feedIdentity() string {
+	if strings.TrimSpace(item.FeedIdentity) != "" {
+		return item.FeedIdentity
+	}
+	return item.Identity
 }
 
 func unresolvedFromCanonicalizationError(item fetchedItem, err error) unresolvedItem {
@@ -592,7 +610,7 @@ func parseFeed(body []byte) ([]fetchedItem, error) {
 				identity = title
 			}
 			if title != "" {
-				items = append(items, fetchedItem{Title: title, URL: link, PublishedAt: strings.TrimSpace(item.PubDate), Identity: identity, RSSSource: item.Source.Text})
+				items = append(items, fetchedItem{Title: title, URL: link, PublishedAt: strings.TrimSpace(item.PubDate), Identity: identity, FeedIdentity: identity, RSSSource: item.Source.Text})
 			}
 		}
 		return items, nil
@@ -616,7 +634,7 @@ func parseFeed(body []byte) ([]fetchedItem, error) {
 			identity = title
 		}
 		if title != "" {
-			items = append(items, fetchedItem{Title: title, URL: link, PublishedAt: strings.TrimSpace(entry.Updated), Identity: identity})
+			items = append(items, fetchedItem{Title: title, URL: link, PublishedAt: strings.TrimSpace(entry.Updated), Identity: identity, FeedIdentity: identity})
 		}
 	}
 	return items, nil
