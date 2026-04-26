@@ -28,6 +28,8 @@ var (
 
 const canonicalizationSkippedReason = "url canonicalization skipped after 5-item source limit"
 
+const googleNewsArticleResolverKind = "google_news_article_url"
+
 type fetchedItem struct {
 	Title        string
 	URL          string
@@ -57,6 +59,7 @@ type fetcher struct {
 	canonicalizationTimeout              time.Duration
 	googleNewsArticleBaseURL             string
 	googleNewsBatchEndpoint              string
+	googleNewsResolutionMemo             *googleNewsResolutionMemo
 }
 
 func newFetcher() fetcher {
@@ -67,6 +70,7 @@ func newFetcher() fetcher {
 		canonicalizationTimeout:              canonicalizationTimeout,
 		googleNewsArticleBaseURL:             googleNewsArticleBaseURL,
 		googleNewsBatchEndpoint:              googleNewsBatchEndpoint,
+		googleNewsResolutionMemo:             newGoogleNewsResolutionMemo(),
 	}
 }
 
@@ -139,11 +143,67 @@ func (f fetcher) urlCanonicalizationStrategy(strategy string) (urlCanonicalizati
 		return urlCanonicalizationStrategy{
 			networkBacked: true,
 			shouldAttempt: isGoogleNewsArticleURL,
-			resolve:       f.resolveGoogleNewsArticleURL,
+			resolve:       f.resolveMemoizedGoogleNewsArticleURL,
 		}, nil
 	default:
 		return urlCanonicalizationStrategy{}, fmt.Errorf("unsupported url canonicalization strategy %q", strategy)
 	}
+}
+
+type googleNewsResolutionKey struct {
+	kind string
+	url  string
+}
+
+type googleNewsResolutionResult struct {
+	url string
+	err error
+}
+
+type googleNewsResolutionCall struct {
+	done   chan struct{}
+	result googleNewsResolutionResult
+}
+
+type googleNewsResolutionMemo struct {
+	mu    sync.Mutex
+	calls map[googleNewsResolutionKey]*googleNewsResolutionCall
+}
+
+func newGoogleNewsResolutionMemo() *googleNewsResolutionMemo {
+	return &googleNewsResolutionMemo{calls: map[googleNewsResolutionKey]*googleNewsResolutionCall{}}
+}
+
+func (m *googleNewsResolutionMemo) resolve(ctx context.Context, key googleNewsResolutionKey, resolve func(context.Context) (string, error)) (string, error) {
+	if m == nil {
+		return resolve(ctx)
+	}
+
+	m.mu.Lock()
+	if existing, ok := m.calls[key]; ok {
+		m.mu.Unlock()
+		select {
+		case <-existing.done:
+			return existing.result.url, existing.result.err
+		case <-ctx.Done():
+			return "", ctx.Err()
+		}
+	}
+
+	call := &googleNewsResolutionCall{done: make(chan struct{})}
+	m.calls[key] = call
+	m.mu.Unlock()
+
+	call.result.url, call.result.err = resolve(ctx)
+	if call.result.err != nil {
+		m.mu.Lock()
+		if m.calls[key] == call {
+			delete(m.calls, key)
+		}
+		m.mu.Unlock()
+	}
+	close(call.done)
+	return call.result.url, call.result.err
 }
 
 func processLocalFeedItems(source Source, items []fetchedItem) []fetchedItem {
@@ -403,6 +463,13 @@ func googleNewsArticleID(value string) (string, error) {
 
 func (f fetcher) resolveGoogleNewsArticleURL(ctx context.Context, value string) (string, error) {
 	return f.resolveGoogleNewsArticleURLWithEndpoints(ctx, value, f.googleNewsArticleBaseURL, f.googleNewsBatchEndpoint)
+}
+
+func (f fetcher) resolveMemoizedGoogleNewsArticleURL(ctx context.Context, value string) (string, error) {
+	key := googleNewsResolutionKey{kind: googleNewsArticleResolverKind, url: value}
+	return f.googleNewsResolutionMemo.resolve(ctx, key, func(resolveCtx context.Context) (string, error) {
+		return f.resolveGoogleNewsArticleURL(resolveCtx, value)
+	})
 }
 
 func (f fetcher) resolveGoogleNewsArticleURLWithEndpoints(ctx context.Context, value string, articleBase string, batchEndpoint string) (string, error) {
