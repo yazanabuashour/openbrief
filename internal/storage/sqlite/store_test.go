@@ -30,6 +30,9 @@ func TestStoreInitializesEmptyConfig(t *testing.T) {
 	if runtimeConfig["configuration_version"] != "v2" {
 		t.Fatalf("configuration_version = %q, want v2", runtimeConfig["configuration_version"])
 	}
+	if runtimeConfig[RuntimeConfigMaxDeliveryItems] != "7" {
+		t.Fatalf("max_delivery_items = %q, want 7", runtimeConfig[RuntimeConfigMaxDeliveryItems])
+	}
 }
 
 func TestReplaceSourcesValidatesAndStores(t *testing.T) {

@@ -3,8 +3,10 @@ package runner
 import (
 	"context"
 	"fmt"
+	"strconv"
 
 	"github.com/yazanabuashour/openbrief/internal/runclient"
+	"github.com/yazanabuashour/openbrief/internal/storage/sqlite"
 )
 
 const (
@@ -14,6 +16,7 @@ const (
 	ConfigActionUpsertSource          = "upsert_source"
 	ConfigActionDeleteSource          = "delete_source"
 	ConfigActionReplaceOutletPolicies = "replace_outlet_policies"
+	ConfigActionSetBriefOptions       = "set_brief_options"
 )
 
 func RunConfigTask(ctx context.Context, cfg runclient.Config, request ConfigTaskRequest) (ConfigTaskResult, error) {
@@ -83,6 +86,22 @@ func RunConfigTask(ctx context.Context, cfg runclient.Config, request ConfigTask
 			Outlets: outlets,
 			Summary: fmt.Sprintf("stored %d outlet policies", len(outlets)),
 		}, nil
+	case ConfigActionSetBriefOptions:
+		if err := validateMaxDeliveryItems(request.MaxDeliveryItems); err != nil {
+			return rejectedConfig(paths, err.Error()), nil
+		}
+		if err := store.SetRuntimeConfig(ctx, sqlite.RuntimeConfigMaxDeliveryItems, strconv.Itoa(request.MaxDeliveryItems)); err != nil {
+			return ConfigTaskResult{}, err
+		}
+		runtimeConfig, err := store.RuntimeConfig(ctx)
+		if err != nil {
+			return ConfigTaskResult{}, err
+		}
+		return ConfigTaskResult{
+			Paths:         paths,
+			RuntimeConfig: runtimeConfig,
+			Summary:       fmt.Sprintf("stored max_delivery_items=%d", request.MaxDeliveryItems),
+		}, nil
 	default:
 		return rejectedConfig(paths, fmt.Sprintf("unsupported config action %q", request.Action)), nil
 	}
@@ -90,6 +109,7 @@ func RunConfigTask(ctx context.Context, cfg runclient.Config, request ConfigTask
 
 type configStore interface {
 	RuntimeConfig(context.Context) (map[string]string, error)
+	SetRuntimeConfig(context.Context, string, string) error
 	ListSources(context.Context, bool) ([]Source, error)
 	ListOutletPolicies(context.Context) ([]OutletPolicy, error)
 }

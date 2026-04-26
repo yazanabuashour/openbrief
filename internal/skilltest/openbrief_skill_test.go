@@ -33,6 +33,8 @@ func TestOpenBriefSkillUsesInstalledRunnerAndDBOnlyConfig(t *testing.T) {
 		"openbrief brief",
 		"OPENBRIEF_DATABASE_PATH",
 		"replace_sources",
+		"set_brief_options",
+		"max_delivery_items",
 	} {
 		if !strings.Contains(text, want) {
 			t.Fatalf("skill missing %q", want)

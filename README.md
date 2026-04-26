@@ -83,8 +83,9 @@ openbrief brief
 Configuration actions manage sources and outlet policies. Sources are generic:
 RSS/Atom feeds, GitHub releases, and optional feed-processing rules such as URL
 canonicalization, outlet extraction, priority rank, dedup groups, and
-always-report behavior. Brief actions run the brief, validate the runtime, and
-record delivered messages for deduplication.
+always-report behavior. Configuration also stores brief options such as
+`max_delivery_items`, which defaults to 7 when unset. Brief actions run the
+brief, validate the runtime, and record delivered messages for deduplication.
 
 ## Local Storage
 

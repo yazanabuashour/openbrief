@@ -73,6 +73,7 @@ Common request shapes:
 {"action":"upsert_source","source":{"key":"tool-releases","label":"Tool Releases","kind":"github_release","repo":"owner/name","section":"releases","threshold":"always","enabled":true}}
 {"action":"delete_source","key":"example"}
 {"action":"replace_outlet_policies","outlets":[]}
+{"action":"set_brief_options","max_delivery_items":7}
 ```
 
 Supported source kinds are `rss`, `atom`, and `github_release`. Supported
@@ -89,9 +90,10 @@ Optional generic feed-processing fields:
 - `always_report`: true makes new feed items `must_include`
 
 Feed URLs, topics, priorities, always-report settings, outlet policies, and
-historical state are operator configuration. User-directed legacy migration can
-draft sources and outlet policies for review, but operational state must not be
-imported without a dedicated runner-backed workflow.
+brief options are operator configuration. `max_delivery_items` controls the
+normal total delivery count and defaults to 7 when unset. User-directed legacy
+migration can draft sources and outlet policies for review, but operational
+state must not be imported without a dedicated runner-backed workflow.
 
 ## Brief Tasks
 
@@ -109,7 +111,7 @@ Request shapes:
 {"action":"record_delivery","run_id":"run_id_from_run_brief","message":"- [Title](<https://example.com>)"}
 ```
 
-For `run_brief`, use `must_include`, `candidates`, `health_footnote`,
+For `run_brief`, use `must_include`, `candidates`, `max_delivery_items`, `health_footnote`,
 `suppressed_recent`, `suppressed_policy`, `suppressed_unresolved`, `suppressed`,
 and `fetch_status` from the JSON result. Do not inspect any files to supplement
 the result. If the result has `rejected: true`, answer with the
@@ -118,8 +120,11 @@ the result. If the result has `rejected: true`, answer with the
 Final answer rules:
 
 - Include all `must_include` items first.
-- Fill remaining slots up to 7 total bullets from `candidates` using brief
-  judgment appropriate to each candidate's `section` and `threshold`.
+- Fill remaining slots up to `max_delivery_items` total bullets from
+  `candidates` using brief judgment appropriate to each candidate's `section`
+  and `threshold`.
+- If `must_include` exceeds `max_delivery_items`, include all `must_include`
+  items and no `candidates`.
 - Use suppressed hyperlinks only: `- [Title](<https://example.com>)`.
 - If `health_footnote` is non-empty, append it as plain text after bullets.
 - If there are no bullets and no health footnote, answer exactly `NO_REPLY`.

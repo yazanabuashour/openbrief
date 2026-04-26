@@ -157,6 +157,10 @@ func runBrief(ctx context.Context, rt *runclient.Runtime, request BriefTaskReque
 	if err != nil {
 		return BriefTaskResult{}, err
 	}
+	options := resolveBriefOptions(runtimeConfig)
+	if options.Warning != "" {
+		currentWarnings["runtime:"+sqlite.RuntimeConfigMaxDeliveryItems] = options.Warning
+	}
 	addStaleHeartbeatWarning(runtimeConfig, currentWarnings)
 	if !request.DryRun {
 		fetchLogs, err := store.RecentFetchLogs(ctx, 500)
@@ -199,6 +203,7 @@ func runBrief(ctx context.Context, rt *runclient.Runtime, request BriefTaskReque
 		FetchStatus:          statuses,
 		HealthFootnote:       healthFootnote,
 		HealthDelta:          healthDelta,
+		MaxDeliveryItems:     options.MaxDeliveryItems,
 		Summary:              summary,
 	}, nil
 }

@@ -37,6 +37,12 @@ const (
 	OutletExtractionTitleSuffix = "title_suffix"
 	OutletExtractionURLHost     = "url_host"
 	OutletExtractionRSSSource   = "rss_source"
+
+	RuntimeConfigConfigurationVersion = "configuration_version"
+	RuntimeConfigMaxDeliveryItems     = "max_delivery_items"
+	ConfigurationVersionV2            = "v2"
+	DefaultMaxDeliveryItems           = 7
+	MaxDeliveryItemsUpperBound        = 25
 )
 
 var (
@@ -253,8 +259,8 @@ func (s *Store) initSchema(ctx context.Context) error {
 	now := s.now().Format(time.RFC3339Nano)
 	if _, err := s.db.ExecContext(ctx, `
 INSERT INTO runtime_config (key_name, value_text, updated_at)
-VALUES ('configuration_version', 'v2', ?)
-ON CONFLICT(key_name) DO NOTHING`, now); err != nil {
+VALUES (?, ?, ?)
+ON CONFLICT(key_name) DO NOTHING`, RuntimeConfigConfigurationVersion, ConfigurationVersionV2, now); err != nil {
 		return fmt.Errorf("initialize runtime config: %w", err)
 	}
 	if err := s.migrateSchema(ctx); err != nil {
@@ -281,11 +287,17 @@ func (s *Store) migrateSchema(ctx context.Context) error {
 	now := s.now().Format(time.RFC3339Nano)
 	if _, err := s.db.ExecContext(ctx, `
 INSERT INTO runtime_config (key_name, value_text, updated_at)
-VALUES ('configuration_version', 'v2', ?)
+VALUES (?, ?, ?)
 ON CONFLICT(key_name) DO UPDATE SET
-	value_text = 'v2',
-	updated_at = excluded.updated_at`, now); err != nil {
+	value_text = excluded.value_text,
+	updated_at = excluded.updated_at`, RuntimeConfigConfigurationVersion, ConfigurationVersionV2, now); err != nil {
 		return fmt.Errorf("migrate runtime config: %w", err)
+	}
+	if _, err := s.db.ExecContext(ctx, `
+INSERT INTO runtime_config (key_name, value_text, updated_at)
+VALUES (?, ?, ?)
+ON CONFLICT(key_name) DO NOTHING`, RuntimeConfigMaxDeliveryItems, fmt.Sprintf("%d", DefaultMaxDeliveryItems), now); err != nil {
+		return fmt.Errorf("seed brief runtime config: %w", err)
 	}
 	return nil
 }

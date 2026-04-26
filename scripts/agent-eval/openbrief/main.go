@@ -126,6 +126,12 @@ var scenarios = []scenario{
 		}},
 	},
 	{
+		ID: "configured-max-delivery-items",
+		Turns: []scenarioTurn{{
+			Prompt: "Configure OpenBrief max_delivery_items to 2 through openbrief config. Configure RSS sources with keys limit-one, limit-two, and limit-three for https://example.com/openbrief-limit-1.xml, https://example.com/openbrief-limit-2.xml, and https://example.com/openbrief-limit-3.xml, each with section technology and threshold medium. Run an OpenBrief brief, deliver the brief according to max_delivery_items, and record the exact delivered message when required. Report only the delivered brief.",
+		}},
+	},
+	{
 		ID: "feed-failure-health-footnote",
 		Turns: []scenarioTurn{{
 			Prompt: "Configure an RSS source with key broken-feed, label Broken Feed, URL https://127.0.0.1:1/no-feed.xml, section technology, and threshold medium. Run an OpenBrief brief and report the health footnote from the JSON result.",
@@ -334,7 +340,8 @@ func runScenario(ctx context.Context, repoRoot string, runRoot string, current s
 func prepareScenarioFixtures(current scenario, runDir string) (scenario, error) {
 	needsFeed := scenarioContains(current, "https://github.blog/feed/")
 	needsReleases := scenarioContains(current, "repository openai/codex")
-	if !needsFeed && !needsReleases {
+	needsLimitFeeds := current.ID == "configured-max-delivery-items"
+	if !needsFeed && !needsReleases && !needsLimitFeeds {
 		return current, nil
 	}
 	fixtureDir := filepath.Join(runDir, "fixtures")
@@ -353,6 +360,21 @@ func prepareScenarioFixtures(current scenario, runDir string) (scenario, error) 
 			return scenario{}, err
 		}
 	}
+	var limitFeedURLs []string
+	if needsLimitFeeds {
+		for i := 1; i <= 3; i++ {
+			path := filepath.Join(fixtureDir, fmt.Sprintf("limit-%d.xml", i))
+			content := fmt.Sprintf(`<?xml version="1.0"?>
+<rss version="2.0"><channel>
+<title>OpenBrief limit fixture %d</title>
+<item><title>OpenBrief limit story %d</title><link>https://fixture.example/limit-%d</link><guid>limit-guid-%d</guid><pubDate>Thu, 23 Apr 2026 01:0%d:00 GMT</pubDate></item>
+</channel></rss>`, i, i, i, i, i)
+			if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+				return scenario{}, err
+			}
+			limitFeedURLs = append(limitFeedURLs, (&url.URL{Scheme: "file", Path: path}).String())
+		}
+	}
 	releases := `[{"tag_name":"v1.2.3","name":"OpenBrief fixture release","html_url":"https://fixture.example/releases/tag/v1.2.3","published_at":"2026-04-23T01:00:00Z","draft":false,"prerelease":false}]`
 	if needsReleases {
 		if err := os.WriteFile(releasePath, []byte(releases), 0o644); err != nil {
@@ -365,6 +387,9 @@ func prepareScenarioFixtures(current scenario, runDir string) (scenario, error) 
 		prompt = strings.ReplaceAll(prompt, "https://github.blog/feed/", replacementFeed)
 		prompt = strings.ReplaceAll(prompt, "named github.blog", "named fixture.example")
 		prompt = strings.ReplaceAll(prompt, "repository openai/codex with key", "repository openai/codex using source URL "+replacementReleases+" with key")
+		for i, value := range limitFeedURLs {
+			prompt = strings.ReplaceAll(prompt, fmt.Sprintf("https://example.com/openbrief-limit-%d.xml", i+1), value)
+		}
 		return prompt
 	}
 	for i := range current.Turns {
@@ -894,6 +919,14 @@ func verifyScenario(dbPath string, scenarioID string, finalMessage string, metri
 	case "rss-source-first-run-candidate", "rss-source-generic-processing-fields", "outlet-policy-watch-audit":
 		expectMinimumTableCount(db, &result, &details, "brief_source", 1)
 		expectMinimumTableCount(db, &result, &details, "source_state", 1)
+	case "configured-max-delivery-items":
+		expectMinimumTableCount(db, &result, &details, "brief_source", 3)
+		expectMinimumTableCount(db, &result, &details, "source_state", 3)
+		expectTableCount(db, &result, &details, "delivery", 1)
+		expectTableCount(db, &result, &details, "sent_item", 2)
+		expectRuntimeConfigValue(db, &result, &details, "max_delivery_items", "2")
+		expectMarkdownBulletCount(&result, &details, finalMessage, 2)
+		expectRecordedDeliveryMessage(db, &result, &details, finalMessage)
 	case "github-release-source-must-include":
 		expectMinimumTableCount(db, &result, &details, "brief_source", 1)
 		expectMinimumTableCount(db, &result, &details, "source_state", 1)
@@ -948,6 +981,45 @@ func tableCount(db *sql.DB, table string) (int, error) {
 		return 0, err
 	}
 	return count, nil
+}
+
+func expectRuntimeConfigValue(db *sql.DB, result *verificationResult, details *[]string, key string, want string) {
+	var got string
+	if err := db.QueryRow("SELECT value_text FROM runtime_config WHERE key_name = ?", key).Scan(&got); err != nil {
+		result.DatabasePass = false
+		*details = append(*details, fmt.Sprintf("runtime_config %s: %v", key, err))
+		return
+	}
+	if got != want {
+		result.DatabasePass = false
+		*details = append(*details, fmt.Sprintf("runtime_config %s = %q, want %q", key, got, want))
+	}
+}
+
+func expectRecordedDeliveryMessage(db *sql.DB, result *verificationResult, details *[]string, want string) {
+	var got string
+	if err := db.QueryRow("SELECT message FROM delivery ORDER BY delivered_at DESC, id DESC LIMIT 1").Scan(&got); err != nil {
+		result.DatabasePass = false
+		*details = append(*details, fmt.Sprintf("delivery message: %v", err))
+		return
+	}
+	if got != want {
+		result.DatabasePass = false
+		*details = append(*details, "delivery message did not match final delivered brief")
+	}
+}
+
+func expectMarkdownBulletCount(result *verificationResult, details *[]string, message string, want int) {
+	got := 0
+	for _, line := range strings.Split(message, "\n") {
+		if strings.HasPrefix(strings.TrimSpace(line), "- [") {
+			got++
+		}
+	}
+	if got != want {
+		result.AssistantPass = false
+		*details = append(*details, fmt.Sprintf("assistant bullet count = %d, want %d", got, want))
+	}
 }
 
 func expectMessageContains(result *verificationResult, details *[]string, message string, values ...string) {

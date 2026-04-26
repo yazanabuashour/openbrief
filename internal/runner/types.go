@@ -12,11 +12,12 @@ type Source = sqlite.Source
 type OutletPolicy = sqlite.OutletPolicy
 
 type ConfigTaskRequest struct {
-	Action  string         `json:"action"`
-	Source  Source         `json:"source,omitempty"`
-	Sources []Source       `json:"sources,omitempty"`
-	Key     string         `json:"key,omitempty"`
-	Outlets []OutletPolicy `json:"outlets,omitempty"`
+	Action           string         `json:"action"`
+	Source           Source         `json:"source,omitempty"`
+	Sources          []Source       `json:"sources,omitempty"`
+	Key              string         `json:"key,omitempty"`
+	Outlets          []OutletPolicy `json:"outlets,omitempty"`
+	MaxDeliveryItems int            `json:"max_delivery_items,omitempty"`
 }
 
 type ConfigTaskResult struct {
@@ -51,6 +52,7 @@ type BriefTaskResult struct {
 	FetchStatus          []FetchStatus              `json:"fetch_status,omitempty"`
 	HealthFootnote       string                     `json:"health_footnote,omitempty"`
 	HealthDelta          sqlite.HealthDelta         `json:"health_delta,omitempty"`
+	MaxDeliveryItems     int                        `json:"max_delivery_items,omitempty"`
 	SentItems            []SentItem                 `json:"sent_items,omitempty"`
 	Summary              string                     `json:"summary"`
 }

@@ -17,6 +17,8 @@ Initial scenarios should cover:
 - configured feed URL canonicalization rewrites feed item URLs through runner
   JSON without adding provider-specific source types
 - outlet policy suppression and watch audit behavior
+- configured `max_delivery_items` caps delivered candidate bullets and records
+  the exact delivered message
 - same-run topic deduplication and 24-hour recent topic suppression
 - invalid source config rejects through runner JSON
 - routine production agent does not inspect SQLite or repo files as a fallback
