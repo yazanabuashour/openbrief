@@ -5,6 +5,10 @@ published with GitHub Releases and mirrored in `docs/release-notes/`.
 
 ## Releases
 
+- [v0.1.4](https://github.com/yazanabuashour/openbrief/releases/tag/v0.1.4)
+  adds a SQLite-backed `max_delivery_items` brief option, exposes the resolved
+  limit in runner JSON, updates the production skill to honor it, and adds a
+  targeted production-agent eval for configured delivery limits.
 - [v0.1.3](https://github.com/yazanabuashour/openbrief/releases/tag/v0.1.3)
   bounds feed URL canonicalization work, preserves feed item ordering during
   parallel resolution, and makes RSS source outlet extraction effective for
