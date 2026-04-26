@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -959,6 +960,159 @@ func TestGoogleNewsFeedCanonicalizationDoesNotMemoizeFailure(t *testing.T) {
 	}
 }
 
+func TestGoogleNewsFeedCanonicalizationBacksOffAfterRateLimit(t *testing.T) {
+	ctx := context.Background()
+	withGoogleNewsBackoffTestSetting(t, 40*time.Millisecond)
+	var mu sync.Mutex
+	var articleStarts []time.Time
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.URL.Path == "/rate-feed":
+			_, _ = w.Write([]byte(rssFixtureItems(
+				rssFixtureItem{title: "Rate limited", link: "https://news.google.com/rss/articles/rate-limited?hl=en-US", guid: "rate-limited"},
+			)))
+		case r.URL.Path == "/follow-feed":
+			_, _ = w.Write([]byte(rssFixtureItems(
+				rssFixtureItem{title: "Follow one", link: "https://news.google.com/rss/articles/follow-one?hl=en-US", guid: "follow-one"},
+				rssFixtureItem{title: "Follow two", link: "https://news.google.com/rss/articles/follow-two?hl=en-US", guid: "follow-two"},
+			)))
+		case strings.HasPrefix(r.URL.Path, "/articles/"):
+			mu.Lock()
+			articleStarts = append(articleStarts, time.Now())
+			mu.Unlock()
+			if r.URL.Path == "/articles/rate-limited" {
+				http.Error(w, "rate limited", http.StatusTooManyRequests)
+				return
+			}
+			_, _ = w.Write([]byte(`<c-wiz data-n-a-sg="signature" data-n-a-ts="1775407930"></c-wiz>`))
+		case r.URL.Path == "/batch":
+			_ = r.ParseForm()
+			id := firstRequestedArticleIDFromValues(r.Form.Get("f.req"), "follow-one", "follow-two")
+			if id == "" {
+				t.Fatalf("batch body missing article id: %s", r.Form.Get("f.req"))
+			}
+			_, _ = w.Write(googleNewsBatchResponse(t, "https://publisher.example/"+id))
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+
+	fetcher := newFetcher()
+	fetcher.canonicalizationConcurrency = 1
+	fetcher.googleNewsArticleBaseURL = server.URL + "/articles/"
+	fetcher.googleNewsBatchEndpoint = server.URL + "/batch"
+	source := Source{
+		Key:                 "google",
+		Label:               "Google",
+		Kind:                sqlite.SourceKindRSS,
+		Section:             "technology",
+		Threshold:           sqlite.ThresholdMedium,
+		Enabled:             true,
+		URLCanonicalization: sqlite.URLCanonicalizationGoogleNewsArticle,
+	}
+	rateLimitedSource := source
+	rateLimitedSource.URL = server.URL + "/rate-feed"
+	first, err := fetcher.FetchDetailed(ctx, rateLimitedSource)
+	if err != nil {
+		t.Fatalf("first FetchDetailed: %v", err)
+	}
+	if len(first.Unresolved) != 1 {
+		t.Fatalf("first unresolved = %+v", first.Unresolved)
+	}
+	followSource := source
+	followSource.URL = server.URL + "/follow-feed"
+	output, err := fetcher.FetchDetailed(ctx, followSource)
+	if err != nil {
+		t.Fatalf("second FetchDetailed: %v", err)
+	}
+	if len(output.Unresolved) != 0 {
+		t.Fatalf("second unresolved = %+v", output.Unresolved)
+	}
+	if len(output.Items) != 2 {
+		t.Fatalf("items = %+v", output.Items)
+	}
+	mu.Lock()
+	starts := append([]time.Time(nil), articleStarts...)
+	mu.Unlock()
+	if len(starts) != 3 {
+		t.Fatalf("article starts = %d", len(starts))
+	}
+	if gap := starts[1].Sub(starts[0]); gap < 30*time.Millisecond {
+		t.Fatalf("first follow-up started after %s, want backoff", gap)
+	}
+	if output.Items[0].URL != "https://publisher.example/follow-one" || output.Items[1].URL != "https://publisher.example/follow-two" {
+		t.Fatalf("items = %+v", output.Items)
+	}
+}
+
+func TestRunBriefGoogleNewsRateLimitDoesNotBlockHealthySource(t *testing.T) {
+	ctx := context.Background()
+	withGoogleNewsBackoffTestSetting(t, 10*time.Millisecond)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/google-feed":
+			_, _ = w.Write([]byte(rssFixture("Rate limited Google", "https://news.google.com/rss/articles/rate-limited?hl=en-US", "rate-limited")))
+		case "/healthy-feed":
+			_, _ = w.Write([]byte(rssFixture("Healthy story", "https://publisher.example/healthy", "healthy-guid")))
+		case "/articles/rate-limited":
+			http.Error(w, "rate limited", http.StatusTooManyRequests)
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+	withCanonicalizationTestSettings(t, server.URL+"/articles/", server.URL+"/batch", 5, 2, 2, time.Second)
+
+	cfg := testConfig(t)
+	configureSources(t, cfg, []Source{
+		{
+			Key:                 "google",
+			Label:               "Google",
+			Kind:                sqlite.SourceKindRSS,
+			URL:                 server.URL + "/google-feed",
+			Section:             "technology",
+			Threshold:           sqlite.ThresholdMedium,
+			Enabled:             true,
+			URLCanonicalization: sqlite.URLCanonicalizationGoogleNewsArticle,
+		},
+		{
+			Key:       "healthy",
+			Label:     "Healthy",
+			Kind:      sqlite.SourceKindRSS,
+			URL:       server.URL + "/healthy-feed",
+			Section:   "technology",
+			Threshold: sqlite.ThresholdMedium,
+			Enabled:   true,
+		},
+	})
+
+	result, err := RunBriefTask(ctx, cfg, BriefTaskRequest{Action: BriefActionRun, DryRun: true})
+	if err != nil {
+		t.Fatalf("RunBriefTask: %v", err)
+	}
+	var hasHealthy bool
+	for _, candidate := range result.Candidates {
+		if candidate.SourceKey == "healthy" && candidate.URL == "https://publisher.example/healthy" {
+			hasHealthy = true
+		}
+	}
+	if !hasHealthy {
+		t.Fatalf("candidates = %+v", result.Candidates)
+	}
+	if len(result.SuppressedUnresolved) != 1 || !strings.HasPrefix(result.SuppressedUnresolved[0].Reason, "HTTP 429") {
+		t.Fatalf("suppressed unresolved = %+v", result.SuppressedUnresolved)
+	}
+	if len(result.FetchStatus) != 2 {
+		t.Fatalf("fetch status = %+v", result.FetchStatus)
+	}
+	for _, status := range result.FetchStatus {
+		if status.Status != "ok" {
+			t.Fatalf("fetch status = %+v", result.FetchStatus)
+		}
+	}
+}
+
 func TestBoundedFeedCanonicalizationTimeoutFallsBackToOriginalItem(t *testing.T) {
 	ctx := context.Background()
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -1718,6 +1872,15 @@ func firstRequestedArticleID(value string) string {
 	return ""
 }
 
+func firstRequestedArticleIDFromValues(value string, ids ...string) string {
+	for _, id := range ids {
+		if strings.Contains(value, id) {
+			return id
+		}
+	}
+	return ""
+}
+
 func updateMaxAtomic(maxValue *atomic.Int32, value int32) {
 	for {
 		current := maxValue.Load()
@@ -1725,6 +1888,15 @@ func updateMaxAtomic(maxValue *atomic.Int32, value int32) {
 			return
 		}
 	}
+}
+
+func withGoogleNewsBackoffTestSetting(t *testing.T, duration time.Duration) {
+	t.Helper()
+	original := googleNewsBackoffDuration
+	googleNewsBackoffDuration = duration
+	t.Cleanup(func() {
+		googleNewsBackoffDuration = original
+	})
 }
 
 func withCanonicalizationTestSettings(t *testing.T, articleBaseURL string, batchEndpoint string, maxAttempts int, itemConcurrency int, sourceConcurrency int, timeout time.Duration) {

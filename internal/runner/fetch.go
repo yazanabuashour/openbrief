@@ -24,6 +24,7 @@ var (
 	canonicalizationTimeout              = 3 * time.Second
 	googleNewsArticleBaseURL             = "https://news.google.com/articles/"
 	googleNewsBatchEndpoint              = "https://news.google.com/_/DotsSplashUi/data/batchexecute"
+	googleNewsBackoffDuration            = 250 * time.Millisecond
 )
 
 const canonicalizationSkippedReason = "url canonicalization skipped after 5-item source limit"
@@ -60,6 +61,7 @@ type fetcher struct {
 	googleNewsArticleBaseURL             string
 	googleNewsBatchEndpoint              string
 	googleNewsResolutionMemo             *googleNewsResolutionMemo
+	googleNewsBackoff                    *googleNewsBackoff
 }
 
 func newFetcher() fetcher {
@@ -71,6 +73,7 @@ func newFetcher() fetcher {
 		googleNewsArticleBaseURL:             googleNewsArticleBaseURL,
 		googleNewsBatchEndpoint:              googleNewsBatchEndpoint,
 		googleNewsResolutionMemo:             newGoogleNewsResolutionMemo(),
+		googleNewsBackoff:                    newGoogleNewsBackoff(),
 	}
 }
 
@@ -204,6 +207,64 @@ func (m *googleNewsResolutionMemo) resolve(ctx context.Context, key googleNewsRe
 	}
 	close(call.done)
 	return call.result.url, call.result.err
+}
+
+type googleNewsBackoff struct {
+	mu        sync.Mutex
+	nextStart time.Time
+	interval  time.Duration
+}
+
+func newGoogleNewsBackoff() *googleNewsBackoff {
+	return &googleNewsBackoff{interval: googleNewsBackoffDuration}
+}
+
+func (b *googleNewsBackoff) wait(ctx context.Context) error {
+	if b == nil || b.interval <= 0 {
+		return nil
+	}
+
+	b.mu.Lock()
+	now := time.Now()
+	waitUntil := b.nextStart
+	if waitUntil.IsZero() || !now.Before(waitUntil) {
+		b.mu.Unlock()
+		return nil
+	}
+	b.nextStart = waitUntil.Add(b.interval)
+	b.mu.Unlock()
+
+	timer := time.NewTimer(time.Until(waitUntil))
+	defer timer.Stop()
+	select {
+	case <-timer.C:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+}
+
+func (b *googleNewsBackoff) record(err error) {
+	if b == nil || b.interval <= 0 || !isGoogleNewsBackoffSignal(err) {
+		return
+	}
+
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	nextStart := time.Now().Add(b.interval)
+	if b.nextStart.Before(nextStart) {
+		b.nextStart = nextStart
+	}
+}
+
+func isGoogleNewsBackoffSignal(err error) bool {
+	if errors.Is(err, context.DeadlineExceeded) {
+		return true
+	}
+	if err == nil {
+		return false
+	}
+	return strings.HasPrefix(err.Error(), "HTTP 429")
 }
 
 func processLocalFeedItems(source Source, items []fetchedItem) []fetchedItem {
@@ -468,7 +529,12 @@ func (f fetcher) resolveGoogleNewsArticleURL(ctx context.Context, value string) 
 func (f fetcher) resolveMemoizedGoogleNewsArticleURL(ctx context.Context, value string) (string, error) {
 	key := googleNewsResolutionKey{kind: googleNewsArticleResolverKind, url: value}
 	return f.googleNewsResolutionMemo.resolve(ctx, key, func(resolveCtx context.Context) (string, error) {
-		return f.resolveGoogleNewsArticleURL(resolveCtx, value)
+		if err := f.googleNewsBackoff.wait(resolveCtx); err != nil {
+			return "", err
+		}
+		resolved, err := f.resolveGoogleNewsArticleURL(resolveCtx, value)
+		f.googleNewsBackoff.record(err)
+		return resolved, err
 	})
 }
 
