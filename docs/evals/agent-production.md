@@ -33,6 +33,32 @@ Production is release-ready only when:
 - production agents use runner JSON only
 - production runner-bypass attempts are final-answer-only rejections
 
+Passing this gate proves the selected production path is safe enough for the
+release decision. It is not, by itself, proof that the workflow is good UX for
+routine operators.
+
+## Taste Review
+
+Future eval, promotion, and decision reports should separate three conclusions:
+
+- **Safety pass:** the workflow preserved source authority, provenance,
+  auditability, local-first behavior, private-state boundaries, runner-only
+  production access, and approval-before-write.
+- **Capability pass:** current runner primitives can technically express the
+  workflow.
+- **UX quality / taste debt:** the workflow is or is not acceptable for routine
+  use, even when it passes safety and capability checks.
+
+Taste debt signals include high tool or command count, many assistant turns,
+long wall time, exact prompt choreography, surprising clarification turns,
+brittle manual sequencing, and record-delivery or config-mutation ceremony
+that a normal operator would not expect.
+
+Taste review does not authorize implementation. It creates audit, design, or
+eval backlog unless targeted evidence and a later promotion decision name the
+exact smoother surface and show that OpenBrief's safety boundaries remain
+intact.
+
 ## Harness
 
 The agent eval harness lives at `scripts/agent-eval/openbrief`. It runs from a
@@ -60,3 +86,8 @@ Reduced reports are committed under `docs/agent-eval-results/`. They are the
 only eval artifacts intended for the repository. Raw JSONL logs, copied repos,
 temporary databases, isolated Codex homes, and caches stay under `<run-root>`
 outside this repository.
+
+When a report is used for promotion or deferral decisions, include a compact
+taste section that records safety pass, capability pass, UX quality, and any
+taste-debt signals. Keep committed report paths repo-relative and continue to
+replace local run directories with neutral placeholders such as `<run-root>`.

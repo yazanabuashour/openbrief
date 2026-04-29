@@ -2,6 +2,16 @@
 - Do work on the current branch. Do not create or switch to another branch unless explicitly instructed.
 - For repo-pinned developer tools declared in `mise.toml`, run commands through `mise exec -- ...` so agents use the same tool versions as local docs and CI.
 
+## ADR/POC/Eval Decision Taste Review
+
+When doing OpenBrief ADR, POC, eval, promotion, or deferred-capability decision work, keep the existing evidence discipline but add a taste check before accepting a technically safe outcome:
+
+- Ask whether a normal user would expect a simpler OpenBrief surface than the one being preserved.
+- Distinguish read, fetch, and inspect permission from durable configuration or write approval. User-provided public feeds, release sources, or named migration inputs can justify inspection; durable config writes and private or state imports still require explicit approval and runner support.
+- Prefer extending the natural existing runner surface when the input clearly belongs there, instead of declaring adjacent UX unsupported only because current primitives can express it manually.
+- Treat "completed but ceremonial" eval passes as possible taste debt when they require high step count, long latency, exact prompt choreography, surprising clarification, or brittle manual sequencing.
+- Do not use taste review to bypass safety: provenance, source authority, auditability, local-first behavior, runner-only production access, private-state boundaries, and approval-before-write still apply.
+
 <!-- BEGIN BEADS INTEGRATION v:1 profile:minimal hash:ca08a54f -->
 ## Beads Issue Tracker
 
