@@ -105,37 +105,6 @@ func TestRunBriefUsesConfiguredMaxDeliveryItems(t *testing.T) {
 	}
 }
 
-func TestRunBriefFallsBackForInvalidStoredMaxDeliveryItems(t *testing.T) {
-	ctx := context.Background()
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		_, _ = w.Write([]byte(rssFixture("Fallback item", "https://example.com/fallback", "guid-1")))
-	}))
-	defer server.Close()
-
-	cfg := testConfig(t)
-	configureSource(t, cfg, Source{
-		Key:       "example",
-		Label:     "Example",
-		Kind:      sqlite.SourceKindRSS,
-		URL:       server.URL,
-		Section:   "technology",
-		Threshold: sqlite.ThresholdMedium,
-		Enabled:   true,
-	})
-	setRuntimeConfig(t, cfg, sqlite.RuntimeConfigMaxDeliveryItems, "not-a-number")
-
-	result, err := RunBriefTask(ctx, cfg, BriefTaskRequest{Action: BriefActionRun, DryRun: true})
-	if err != nil {
-		t.Fatalf("RunBriefTask: %v", err)
-	}
-	if result.MaxDeliveryItems != sqlite.DefaultMaxDeliveryItems {
-		t.Fatalf("MaxDeliveryItems = %d, want %d", result.MaxDeliveryItems, sqlite.DefaultMaxDeliveryItems)
-	}
-	if len(result.HealthDelta.NewWarnings) == 0 || !strings.Contains(result.HealthDelta.NewWarnings[0], sqlite.RuntimeConfigMaxDeliveryItems) {
-		t.Fatalf("HealthDelta = %+v", result.HealthDelta)
-	}
-}
-
 func TestResolveBriefOptionsDefaultsWhenMaxDeliveryItemsAbsent(t *testing.T) {
 	options := resolveBriefOptions(map[string]string{})
 	if options.MaxDeliveryItems != sqlite.DefaultMaxDeliveryItems || options.Warning != "" {

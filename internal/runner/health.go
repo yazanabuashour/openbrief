@@ -90,7 +90,7 @@ func joinWarningSources(names []string) string {
 	return strings.Join(out, ", ")
 }
 
-func addStaleHeartbeatWarning(runtimeConfig map[string]string, currentWarnings map[string]string) {
+func addStaleHeartbeatWarning(runtimeConfig map[string]string, currentWarnings map[string]string, now time.Time) {
 	lastCheck := strings.TrimSpace(runtimeConfig["last_check"])
 	if lastCheck == "" {
 		return
@@ -99,7 +99,7 @@ func addStaleHeartbeatWarning(runtimeConfig map[string]string, currentWarnings m
 	if err != nil {
 		return
 	}
-	diff := time.Since(checkedAt)
+	diff := now.Sub(checkedAt)
 	if diff <= 4*time.Hour {
 		return
 	}

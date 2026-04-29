@@ -6,7 +6,7 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/yazanabuashour/openbrief/internal/storage/sqlite"
+	"github.com/yazanabuashour/openbrief/internal/domain"
 )
 
 var (
@@ -71,9 +71,9 @@ func (f fetcher) Fetch(ctx context.Context, source Source) ([]fetchedItem, error
 
 func (f fetcher) FetchDetailed(ctx context.Context, source Source) (fetchOutput, error) {
 	switch source.Kind {
-	case sqlite.SourceKindRSS, sqlite.SourceKindAtom:
+	case domain.SourceKindRSS, domain.SourceKindAtom:
 		return f.fetchFeed(ctx, source)
-	case sqlite.SourceKindGitHubRelease:
+	case domain.SourceKindGitHubRelease:
 		items, err := f.fetchGitHubReleases(ctx, source)
 		return fetchOutput{Items: items}, err
 	default:

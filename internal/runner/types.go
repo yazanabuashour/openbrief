@@ -3,13 +3,14 @@ package runner
 import (
 	"time"
 
+	"github.com/yazanabuashour/openbrief/internal/domain"
 	"github.com/yazanabuashour/openbrief/internal/runclient"
 	"github.com/yazanabuashour/openbrief/internal/storage/sqlite"
 )
 
 type Paths = runclient.Paths
-type Source = sqlite.Source
-type OutletPolicy = sqlite.OutletPolicy
+type Source = domain.Source
+type OutletPolicy = domain.OutletPolicy
 
 type ConfigTaskRequest struct {
 	Action           string         `json:"action"`

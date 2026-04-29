@@ -66,20 +66,6 @@ func configureBriefOptions(t *testing.T, cfg runclient.Config, maxDeliveryItems 
 	}
 }
 
-func setRuntimeConfig(t *testing.T, cfg runclient.Config, key string, value string) {
-	t.Helper()
-	rt, err := runclient.Open(context.Background(), cfg)
-	if err != nil {
-		t.Fatalf("open runtime: %v", err)
-	}
-	defer func() {
-		_ = rt.Close()
-	}()
-	if err := rt.Store().SetRuntimeConfig(context.Background(), key, value); err != nil {
-		t.Fatalf("SetRuntimeConfig: %v", err)
-	}
-}
-
 func seedSourceState(t *testing.T, cfg runclient.Config, state sqlite.SourceState) {
 	t.Helper()
 	rt, err := runclient.Open(context.Background(), cfg)

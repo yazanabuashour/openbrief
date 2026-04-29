@@ -5,6 +5,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/yazanabuashour/openbrief/internal/domain"
 	"github.com/yazanabuashour/openbrief/internal/storage/sqlite"
 )
 
@@ -22,7 +23,7 @@ func classifyAndDedupe(items []collectedItem) ([]BriefItem, []collectedItem, []S
 			mustInclude = append(mustInclude, item.BriefItem)
 			continue
 		}
-		if item.Source.Threshold != sqlite.ThresholdAudit {
+		if item.Source.Threshold != domain.ThresholdAudit {
 			candidates = append(candidates, item)
 		}
 	}
@@ -33,7 +34,7 @@ func classifyAndDedupe(items []collectedItem) ([]BriefItem, []collectedItem, []S
 }
 
 func isAlwaysReportSource(source Source) bool {
-	return source.AlwaysReport || source.Threshold == sqlite.ThresholdAlways || source.Kind == sqlite.SourceKindGitHubRelease
+	return source.AlwaysReport || source.Threshold == domain.ThresholdAlways || source.Kind == domain.SourceKindGitHubRelease
 }
 
 func collapseSameRunDuplicates(items []collectedItem) ([]collectedItem, []SuppressedItem) {

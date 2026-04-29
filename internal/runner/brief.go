@@ -19,6 +19,33 @@ const (
 
 var sourceFetchConcurrency = 4
 
+type briefStore interface {
+	ListSources(context.Context, bool) ([]Source, error)
+	StartRun(context.Context, bool) (string, error)
+	RecentSentItems(context.Context, time.Time) ([]sqlite.SentItem, error)
+	ListOutletPolicies(context.Context) ([]OutletPolicy, error)
+	SourceState(context.Context, string) (*sqlite.SourceState, error)
+	UpsertSourceState(context.Context, sqlite.SourceState) error
+	InsertFetchLog(context.Context, sqlite.FetchLog) error
+	RuntimeConfig(context.Context) (map[string]string, error)
+	RecentFetchLogs(context.Context, int) ([]sqlite.FetchLog, error)
+	HealthDelta(context.Context, map[string]string, bool) (sqlite.HealthDelta, error)
+	SetRuntimeConfig(context.Context, string, string) error
+	FinishRun(context.Context, string, string, string) error
+}
+
+type briefFetcher interface {
+	FetchDetailed(context.Context, Source) (fetchOutput, error)
+}
+
+type briefRunDeps struct {
+	paths            Paths
+	store            briefStore
+	fetcher          briefFetcher
+	now              func() time.Time
+	fetchConcurrency int
+}
+
 func RunBriefTask(ctx context.Context, cfg runclient.Config, request BriefTaskRequest) (BriefTaskResult, error) {
 	rt, err := runclient.Open(ctx, cfg)
 	if err != nil {
@@ -41,8 +68,24 @@ func RunBriefTask(ctx context.Context, cfg runclient.Config, request BriefTaskRe
 }
 
 func runBrief(ctx context.Context, rt *runclient.Runtime, request BriefTaskRequest) (BriefTaskResult, error) {
-	store := rt.Store()
-	paths := rt.Paths()
+	return runBriefWithDeps(ctx, briefRunDeps{
+		paths:            rt.Paths(),
+		store:            rt.Store(),
+		fetcher:          newFetcher(),
+		now:              func() time.Time { return time.Now().UTC() },
+		fetchConcurrency: sourceFetchConcurrency,
+	}, request)
+}
+
+func runBriefWithDeps(ctx context.Context, deps briefRunDeps, request BriefTaskRequest) (BriefTaskResult, error) {
+	if deps.now == nil {
+		deps.now = func() time.Time { return time.Now().UTC() }
+	}
+	if deps.fetcher == nil {
+		deps.fetcher = newFetcher()
+	}
+	paths := deps.paths
+	store := deps.store
 	sources, err := store.ListSources(ctx, true)
 	if err != nil {
 		return BriefTaskResult{}, err
@@ -59,7 +102,7 @@ func runBrief(ctx context.Context, rt *runclient.Runtime, request BriefTaskReque
 		}
 	}
 
-	recent, err := store.RecentSentItems(ctx, time.Now().UTC().Add(-24*time.Hour))
+	recent, err := store.RecentSentItems(ctx, deps.now().Add(-24*time.Hour))
 	if err != nil {
 		return BriefTaskResult{}, err
 	}
@@ -68,7 +111,6 @@ func runBrief(ctx context.Context, rt *runclient.Runtime, request BriefTaskReque
 		return BriefTaskResult{}, err
 	}
 	recentLookup := recentSentLookup(recent)
-	fetcher := newFetcher()
 	var collected []collectedItem
 	var suppressedRecent []SuppressedRecentItem
 	var suppressedPolicy []SuppressedPolicyItem
@@ -76,7 +118,7 @@ func runBrief(ctx context.Context, rt *runclient.Runtime, request BriefTaskReque
 	var suppressed []SuppressedItem
 	var statuses []FetchStatus
 	currentWarnings := map[string]string{}
-	fetchResults := fetchSources(ctx, fetcher, sources)
+	fetchResults := fetchSources(ctx, deps.fetcher, sources, deps.fetchConcurrency)
 
 	for i, source := range sources {
 		state, err := store.SourceState(ctx, source.Key)
@@ -128,7 +170,7 @@ func runBrief(ctx context.Context, rt *runclient.Runtime, request BriefTaskReque
 					LatestTitle:        top.Title,
 					LatestURL:          top.URL,
 					LatestPublishedAt:  top.PublishedAt,
-					CheckedAt:          time.Now().UTC(),
+					CheckedAt:          deps.now(),
 				}); err != nil {
 					return BriefTaskResult{}, err
 				}
@@ -158,7 +200,7 @@ func runBrief(ctx context.Context, rt *runclient.Runtime, request BriefTaskReque
 	if options.Warning != "" {
 		currentWarnings["runtime:"+sqlite.RuntimeConfigMaxDeliveryItems] = options.Warning
 	}
-	addStaleHeartbeatWarning(runtimeConfig, currentWarnings)
+	addStaleHeartbeatWarning(runtimeConfig, currentWarnings, deps.now())
 	if !request.DryRun {
 		fetchLogs, err := store.RecentFetchLogs(ctx, 500)
 		if err != nil {
@@ -171,7 +213,7 @@ func runBrief(ctx context.Context, rt *runclient.Runtime, request BriefTaskReque
 		return BriefTaskResult{}, err
 	}
 	if !request.DryRun {
-		if err := store.SetRuntimeConfig(ctx, "last_check", time.Now().UTC().Format(time.RFC3339Nano)); err != nil {
+		if err := store.SetRuntimeConfig(ctx, "last_check", deps.now().Format(time.RFC3339Nano)); err != nil {
 			return BriefTaskResult{}, err
 		}
 	}
@@ -210,9 +252,8 @@ type sourceFetchResult struct {
 	err    error
 }
 
-func fetchSources(ctx context.Context, fetcher fetcher, sources []Source) []sourceFetchResult {
+func fetchSources(ctx context.Context, fetcher briefFetcher, sources []Source, concurrency int) []sourceFetchResult {
 	results := make([]sourceFetchResult, len(sources))
-	concurrency := sourceFetchConcurrency
 	if concurrency <= 0 {
 		concurrency = 1
 	}

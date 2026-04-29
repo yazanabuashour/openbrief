@@ -8,7 +8,7 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/yazanabuashour/openbrief/internal/storage/sqlite"
+	"github.com/yazanabuashour/openbrief/internal/domain"
 )
 
 const canonicalizationSkippedReason = "url canonicalization skipped after 5-item source limit"
@@ -27,9 +27,9 @@ type feedItemResult struct {
 
 func (f fetcher) urlCanonicalizationStrategy(strategy string) (urlCanonicalizationStrategy, error) {
 	switch strategy {
-	case "", sqlite.URLCanonicalizationNone:
+	case "", domain.URLCanonicalizationNone:
 		return urlCanonicalizationStrategy{}, nil
-	case sqlite.URLCanonicalizationFeedBurnerRedirect:
+	case domain.URLCanonicalizationFeedBurnerRedirect:
 		return urlCanonicalizationStrategy{
 			networkBacked: true,
 			shouldAttempt: func(value string) bool {
@@ -37,7 +37,7 @@ func (f fetcher) urlCanonicalizationStrategy(strategy string) (urlCanonicalizati
 			},
 			resolve: f.followRedirect,
 		}, nil
-	case sqlite.URLCanonicalizationGoogleNewsArticle:
+	case domain.URLCanonicalizationGoogleNewsArticle:
 		return urlCanonicalizationStrategy{
 			networkBacked: true,
 			shouldAttempt: isGoogleNewsArticleURL,
@@ -112,7 +112,7 @@ func (f fetcher) processBoundedCanonicalizedFeedItems(ctx context.Context, sourc
 
 			canonicalURL, err := strategy.resolve(itemCtx, original.URL)
 			if err != nil {
-				if source.OutletExtraction == sqlite.OutletExtractionURLHost {
+				if source.OutletExtraction == domain.OutletExtractionURLHost {
 					results[index] = feedItemResult{unresolved: unresolvedFromCanonicalizationError(original, err)}
 					return
 				}

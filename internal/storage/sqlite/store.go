@@ -7,31 +7,31 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"regexp"
 	"strings"
 	"time"
 
+	"github.com/yazanabuashour/openbrief/internal/domain"
 	_ "modernc.org/sqlite"
 )
 
 const (
-	SourceKindRSS           = "rss"
-	SourceKindAtom          = "atom"
-	SourceKindGitHubRelease = "github_release"
+	SourceKindRSS           = domain.SourceKindRSS
+	SourceKindAtom          = domain.SourceKindAtom
+	SourceKindGitHubRelease = domain.SourceKindGitHubRelease
 
-	ThresholdAlways = "always"
-	ThresholdMedium = "medium"
-	ThresholdHigh   = "high"
-	ThresholdAudit  = "audit"
+	ThresholdAlways = domain.ThresholdAlways
+	ThresholdMedium = domain.ThresholdMedium
+	ThresholdHigh   = domain.ThresholdHigh
+	ThresholdAudit  = domain.ThresholdAudit
 
-	URLCanonicalizationNone               = "none"
-	URLCanonicalizationFeedBurnerRedirect = "feedburner_redirect"
-	URLCanonicalizationGoogleNewsArticle  = "google_news_article_url"
+	URLCanonicalizationNone               = domain.URLCanonicalizationNone
+	URLCanonicalizationFeedBurnerRedirect = domain.URLCanonicalizationFeedBurnerRedirect
+	URLCanonicalizationGoogleNewsArticle  = domain.URLCanonicalizationGoogleNewsArticle
 
-	OutletExtractionNone        = "none"
-	OutletExtractionTitleSuffix = "title_suffix"
-	OutletExtractionURLHost     = "url_host"
-	OutletExtractionRSSSource   = "rss_source"
+	OutletExtractionNone        = domain.OutletExtractionNone
+	OutletExtractionTitleSuffix = domain.OutletExtractionTitleSuffix
+	OutletExtractionURLHost     = domain.OutletExtractionURLHost
+	OutletExtractionRSSSource   = domain.OutletExtractionRSSSource
 
 	RuntimeConfigConfigurationVersion = "configuration_version"
 	RuntimeConfigMaxDeliveryItems     = "max_delivery_items"
@@ -40,12 +40,8 @@ const (
 	MaxDeliveryItemsUpperBound        = 25
 )
 
-var (
-	sourceKeyPattern  = regexp.MustCompile(`^[a-z0-9][a-z0-9._-]*$`)
-	gitHubRepoPattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9-]*/[A-Za-z0-9._-]+$`)
-)
-
-const evalAllowFileURLsEnv = "OPENBRIEF_EVAL_ALLOW_FILE_URLS"
+type Source = domain.Source
+type OutletPolicy = domain.OutletPolicy
 
 type Config struct {
 	DatabasePath string

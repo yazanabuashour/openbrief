@@ -4,10 +4,10 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/yazanabuashour/openbrief/internal/storage/sqlite"
+	"github.com/yazanabuashour/openbrief/internal/domain"
 )
 
-func applyOutletPolicies(source Source, items []fetchedItem, policies []sqlite.OutletPolicy) ([]fetchedItem, []SuppressedPolicyItem) {
+func applyOutletPolicies(source Source, items []fetchedItem, policies []OutletPolicy) ([]fetchedItem, []SuppressedPolicyItem) {
 	if len(items) == 0 || len(policies) == 0 {
 		return items, nil
 	}
@@ -26,7 +26,7 @@ func applyOutletPolicies(source Source, items []fetchedItem, policies []sqlite.O
 			Outlet:    outlet,
 			Policy:    policy.Policy,
 		})
-		if policy.Policy == "block" {
+		if policy.Policy == domain.OutletPolicyBlock {
 			continue
 		}
 		kept = append(kept, item)
@@ -34,10 +34,10 @@ func applyOutletPolicies(source Source, items []fetchedItem, policies []sqlite.O
 	return kept, audit
 }
 
-func matchingOutletPolicy(item fetchedItem, policies []sqlite.OutletPolicy) (sqlite.OutletPolicy, string, bool) {
+func matchingOutletPolicy(item fetchedItem, policies []OutletPolicy) (OutletPolicy, string, bool) {
 	outlet := strings.TrimSpace(item.Outlet)
 	if outlet == "" {
-		return sqlite.OutletPolicy{}, "", false
+		return OutletPolicy{}, "", false
 	}
 	normalizedOutlet := normalizeOutletName(outlet)
 	for _, policy := range policies {
@@ -50,7 +50,7 @@ func matchingOutletPolicy(item fetchedItem, policies []sqlite.OutletPolicy) (sql
 			}
 		}
 	}
-	return sqlite.OutletPolicy{}, "", false
+	return OutletPolicy{}, "", false
 }
 
 func normalizeOutletName(value string) string {

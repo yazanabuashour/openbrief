@@ -12,8 +12,15 @@ import (
 
 var deliveryBulletPattern = regexp.MustCompile(`(?m)^-\s+\[([^\]]+)\]\(<([^>]+)>\)\s*$`)
 
+type deliveryStore interface {
+	InsertDelivery(context.Context, string, string, []sqlite.SentItem) ([]sqlite.SentItem, error)
+}
+
 func recordDelivery(ctx context.Context, rt *runclient.Runtime, request BriefTaskRequest) (BriefTaskResult, error) {
-	paths := rt.Paths()
+	return recordDeliveryWithStore(ctx, rt.Paths(), rt.Store(), request)
+}
+
+func recordDeliveryWithStore(ctx context.Context, paths Paths, store deliveryStore, request BriefTaskRequest) (BriefTaskResult, error) {
 	if strings.TrimSpace(request.RunID) == "" {
 		return rejectedBrief(paths, "run_id is required"), nil
 	}
@@ -21,7 +28,7 @@ func recordDelivery(ctx context.Context, rt *runclient.Runtime, request BriefTas
 		return rejectedBrief(paths, "message is required"), nil
 	}
 	items := parseDeliveryMessage(request.Message)
-	stored, err := rt.Store().InsertDelivery(ctx, request.RunID, request.Message, items)
+	stored, err := store.InsertDelivery(ctx, request.RunID, request.Message, items)
 	if err != nil {
 		return BriefTaskResult{}, err
 	}
