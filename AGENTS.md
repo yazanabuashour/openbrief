@@ -4,16 +4,16 @@
 
 ## ADR/POC/Eval Decision Taste Review
 
-When doing OpenBrief ADR, POC, eval, promotion, or deferred-capability decision work, keep the existing evidence discipline but add a taste check before accepting a technically safe outcome:
+When doing OpenBrief ADR, POC, eval, promotion, or deferred-capability decision work, keep the existing evidence discipline but add a taste check before accepting a defer/reference outcome:
 
 - Ask whether a normal user would expect a simpler OpenBrief surface than the one being preserved.
-- Distinguish read, fetch, and inspect permission from durable configuration or write approval. User-provided public feeds, release sources, or named migration inputs can justify inspection; durable config writes and private or state imports still require explicit approval and runner support.
-- Prefer extending the natural existing runner surface when the input clearly belongs there, instead of declaring adjacent UX unsupported only because current primitives can express it manually.
-- Treat "completed but ceremonial" eval passes as possible taste debt when they require high step count, long latency, exact prompt choreography, surprising clarification, or brittle manual sequencing.
-- Record safety pass, capability pass, and UX quality separately when a report or decision needs to justify defer, reference-only, or non-promotion outcomes.
-- When a technically safe outcome still leaves a real operator need, create or link follow-up Beads for candidate-surface comparison before handoff. The follow-up should compare existing primitives, extending a natural runner action, and adding a narrow runner-owned workflow surface unless the decision explains why fewer shapes are viable.
-- Before closing ADR, POC, eval, promotion, or deferred-capability work with outcome `defer`, `keep-as-reference`, `more evidence`, `candidate selected`, or `none viable yet`, run `bd search` for existing follow-up work. If none exists, create and link the needed follow-up Bead(s).
-- Do not use taste review to bypass safety: provenance, source authority, auditability, local-first behavior, runner-only production access, private-state boundaries, and approval-before-write still apply.
+- Distinguish read/fetch/inspect permission from durable configuration or write approval. User-provided public feeds, release sources, or named migration inputs can justify inspection; durable config writes and private or state imports still require explicit approval and runner support.
+- Prefer extending the natural existing runner action when the input clearly belongs there, instead of declaring the adjacent UX unsupported.
+- Treat "completed but ceremonial" eval passes as possible taste debt when they require high step count, long latency, exact prompt choreography, or surprising clarification turns.
+- Record safety pass, capability pass, and UX quality separately when a report or decision needs to justify defer/reference.
+- When taste debt, defer, keep-as-reference, or another non-promotion outcome still leaves a real capability, ergonomics, safety, auditability, or workflow need, identify whether the evaluated shape failed while the need remains valid. If it does, create or propose follow-up Beads for candidate-surface comparison before handoff, normally with 2-3 plausible shapes unless the decision documents why only one is viable. The follow-up must compare candidates, choose the best, combine useful behaviors if appropriate, defer or kill the track, or record `none viable yet`.
+- Before closing any ADR, POC, eval, promotion, or deferred-capability decision epic with outcome `keep-as-reference`, `defer`, `more evidence`, `candidate selected`, `none viable yet`, or another non-promotion result, run `bd search` for existing follow-up work. If none exists, create and link the follow-up Bead(s) before closing the parent or handing off.
+- Do not use taste review to bypass safety or evidence discipline: provenance, source authority, auditability, local-first behavior, runner-only production access, private-state boundaries, approval-before-write, and ADR/POC/eval/promotion decisions still apply.
 
 <!-- BEGIN BEADS INTEGRATION v:1 profile:minimal hash:ca08a54f -->
 ## Beads Issue Tracker
@@ -35,34 +35,38 @@ bd close <id>         # Complete work
 - Run `bd prime` for detailed command reference and session close protocol
 - Use `bd remember` for persistent knowledge — do NOT use MEMORY.md files
 
-## Session Completion
+## Work Item Completion
 
-**When ending a work session**, you MUST complete steps 1-5 below, then stop for manual review before running `git add`, `git commit`, `bd dolt push`, or `git push`. The workflow is paused for manual review at step 5 with uncommitted local changes, and the work session is NOT complete until steps 6-10 are finished after review approval and `git push` succeeds.
+A **work item** is one logical bead, task, story, or other coherent unit of work. **When completing each work item**, complete the workflow below through review, local commit, verification, and handoff before starting unrelated work or handing off. Push only when the maintainer or task explicitly asks for remote publication. If a single thread completes multiple independent beads/tasks/stories, repeat this workflow once for each completed work item. If a work item contains multiple independent logical checkpoints, complete the review workflow for each checkpoint before moving to the next; a checkpoint is the smallest coherent unit whose changes can be reviewed on their own, such as one bug fix, one finding, one migration step, or one separable behavior change.
 
 **MANDATORY WORKFLOW:**
 
 1. **File issues for remaining work** - Create issues for anything that needs follow-up
 2. **Run quality gates** (if code changed) - Tests, linters, builds
 3. **Update issue status** - Close finished work, update in-progress items
-4. **Prepare manual review** - Run `git status`, summarize changed files and quality gates, confirm no commit or push has been performed, and leave files uncommitted for manual review
-5. **Manual review** - Stop here by default with uncommitted local changes, report that the workflow is paused for manual review, and wait for explicit instruction to complete the remaining steps
-6. **Commit approved changes** - After explicit review approval, stage the intended files and create a local commit
-7. **PUSH TO REMOTE** - This is MANDATORY:
+4. **Prepare review** - Run `git status`, summarize changed files and quality gates, and confirm no commit or push has been performed
+5. **Codex review** - Run the review command once for the current work item or review checkpoint:
+   ```bash
+   codex --search -m gpt-5.5 -c 'model_reasoning_effort="high"' review --uncommitted
+   ```
+   If the review finds issues, address the findings.
+6. **Commit reviewed changes** - After the review command completes, stage the intended files and create a local commit
+7. **Remote publication** - Push only when explicitly requested:
    ```bash
    git pull --rebase
    bd dolt push
    git push
-   git status  # MUST show "up to date with origin"
+   git status
    ```
 8. **Clean up** - Clear stashes, prune remote branches
-9. **Verify** - All changes committed AND pushed
+9. **Verify** - All intended changes are committed, and pushed only when remote publication was requested
 10. **Hand off** - Provide context for next session
 
 **CRITICAL RULES:**
-- The workflow pauses for manual review after step 5 with uncommitted local changes, and the work session is NOT complete until `git push` succeeds
-- Do NOT run `git add`, `git commit`, `bd dolt push`, or `git push` before manual review unless explicitly instructed
-- Do NOT continue past `Manual review` unless explicitly instructed to complete the remaining workflow steps
-- Once instructed to continue after review, stage, commit, pull/rebase, run `bd dolt push`, and `git push`; do NOT stop again with local-only changes
-- NEVER say "ready to push when you are" after review approval - YOU must push
-- If push fails, resolve and retry until it succeeds
+- Do not push to a remote unless the maintainer or task explicitly requested remote publication
+- Run the Codex review command once per work item or review checkpoint; do not rerun the same checkpoint review as a workflow loop
+- For multi-checkpoint work, run quality gates, Codex review, and commit after each independent checkpoint before starting the next
+- Do NOT commit before quality gates and the Codex review command are complete
+- After the review command completes, stage and commit the intended files; if remote publication was requested, pull/rebase, run `bd dolt push`, and `git push`
+- If a requested push fails, resolve and retry until it succeeds or report the blocker
 <!-- END BEADS INTEGRATION -->
