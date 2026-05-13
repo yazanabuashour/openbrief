@@ -5,6 +5,11 @@ published with GitHub Releases and mirrored in `docs/release-notes/`.
 
 ## Releases
 
+- [v0.1.6](https://github.com/yazanabuashour/openbrief/releases/tag/v0.1.6)
+  adds previous-brief context to brief runner JSON, splits runner and SQLite
+  internals into smaller testable modules, broadens skill validation coverage,
+  and records taste-review and candidate-surface decisions for future
+  OpenBrief workflow work.
 - [v0.1.5](https://github.com/yazanabuashour/openbrief/releases/tag/v0.1.5)
   improves feed canonicalization fallback behavior, memoizes duplicate Google
   News article resolution within a brief run, and backs off Google News
