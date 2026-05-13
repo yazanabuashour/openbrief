@@ -4,6 +4,14 @@ This repository uses **Beads** (`bd`) in embedded mode for maintainer task track
 
 This repository is public and includes a production `openbrief` runner binary and a single-file OpenBrief skill. Keep maintainer docs honest about the actual supported surface.
 
+Keep `skills/openbrief/SKILL.md` thin. Substantial skill growth must first ask
+whether the detail belongs in an existing runner action, a new narrow
+runner-owned workflow action, compact runner help, or maintainer/eval docs. If
+temporary skill text is still needed, explain why runner JSON results,
+rejections, and caller judgment are insufficient, and link a follow-up Bead to
+remove or replace that text. Do not repair routine brief or configuration UX by
+adding long-lived workflow recipes to the skill.
+
 Recurring security operations are tracked in [docs/security-operations.md](security-operations.md). Use that runbook for dependency review cadence, advisory rehearsal, threat-model refreshes, and deeper testing expectations.
 
 ## Initial Setup
@@ -118,5 +126,12 @@ Public releases use annotated semantic version tags in the `v0.y.z` range. The r
 The `release` environment should remain protected so only approved maintainers can publish release assets.
 
 Before tagging, add `docs/release-notes/<tag>.md`, update `CHANGELOG.md`, and run `mise exec -- ./scripts/validate-release-docs.sh <tag>` locally. The release workflow runs the same check before publishing and does not fall back to generated GitHub release notes.
+
+For ADR, POC, eval, promotion, and deferred-capability work, report safety,
+capability, and UX quality separately. Exact-command or scripted eval rows prove
+capability only. If routine success depends on exact JSON, command choreography,
+or skill-only recipes, classify the gap as OpenBrief workflow ceremony and
+compare runner-owned surface candidates before expanding
+`skills/openbrief/SKILL.md`.
 
 After this draft-first workflow is active, enable GitHub release immutability in repository settings for future releases. Published release tags and assets should then be treated as immutable; fix bad artifacts with a new patch release instead of replacing assets on an existing release.

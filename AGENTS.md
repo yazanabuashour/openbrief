@@ -10,6 +10,9 @@ When doing OpenBrief ADR, POC, eval, promotion, or deferred-capability decision 
 - Distinguish read, fetch, and inspect permission from durable configuration or write approval. User-provided public feeds, release sources, or named migration inputs can justify inspection; durable config writes and private or state imports still require explicit approval and runner support.
 - Prefer extending the natural existing runner surface when the input clearly belongs there, instead of declaring adjacent UX unsupported only because current primitives can express it manually.
 - Treat "completed but ceremonial" eval passes as possible taste debt when they require high step count, long latency, exact prompt choreography, surprising clarification, or brittle manual sequencing.
+- Record safety pass, capability pass, and UX quality separately when a report or decision needs to justify defer, reference-only, or non-promotion outcomes.
+- When a technically safe outcome still leaves a real operator need, create or link follow-up Beads for candidate-surface comparison before handoff. The follow-up should compare existing primitives, extending a natural runner action, and adding a narrow runner-owned workflow surface unless the decision explains why fewer shapes are viable.
+- Before closing ADR, POC, eval, promotion, or deferred-capability work with outcome `defer`, `keep-as-reference`, `more evidence`, `candidate selected`, or `none viable yet`, run `bd search` for existing follow-up work. If none exists, create and link the needed follow-up Bead(s).
 - Do not use taste review to bypass safety: provenance, source authority, auditability, local-first behavior, runner-only production access, private-state boundaries, and approval-before-write still apply.
 
 <!-- BEGIN BEADS INTEGRATION v:1 profile:minimal hash:ca08a54f -->

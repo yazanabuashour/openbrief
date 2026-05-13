@@ -108,7 +108,7 @@ mise install
 mise exec -- gofmt -w .
 mise exec -- golangci-lint run
 mise exec -- go test ./...
-mise exec -- ./scripts/validate-agent-skill.sh skills/openbrief
+mise exec -- ./scripts/validate-all-agent-skills.sh
 mise exec -- ./scripts/validate-release-docs.sh v0.1.0
 ```
 
