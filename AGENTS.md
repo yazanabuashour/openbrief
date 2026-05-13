@@ -58,7 +58,7 @@ A **work item** is one logical bead, task, story, or other coherent unit of work
    git push
    git status
    ```
-8. **Clean up** - Clear stashes, prune remote branches
+8. **Clean up** - Clear stashes, prune remote branches when relevant
 9. **Verify** - All intended changes are committed, and pushed only when remote publication was requested
 10. **Hand off** - Provide context for next session
 

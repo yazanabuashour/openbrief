@@ -5,6 +5,10 @@ published with GitHub Releases and mirrored in `docs/release-notes/`.
 
 ## Releases
 
+- [v0.1.7](https://github.com/yazanabuashour/openbrief/releases/tag/v0.1.7)
+  fixes previous-brief rendering guidance so recorded previous brief bodies keep
+  their Markdown links, strengthens regression coverage for the history eval,
+  and refreshes maintainer workflow instructions from the OpenClerk template.
 - [v0.1.6](https://github.com/yazanabuashour/openbrief/releases/tag/v0.1.6)
   adds previous-brief context to brief runner JSON, splits runner and SQLite
   internals into smaller testable modules, broadens skill validation coverage,
