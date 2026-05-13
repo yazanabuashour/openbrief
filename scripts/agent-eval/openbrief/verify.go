@@ -53,9 +53,11 @@ func verifyScenario(dbPath string, scenarioID string, finalMessage string, metri
 		expectMarkdownBulletCount(&result, &details, finalMessage, 3)
 		expectMessageContains(&result, &details, finalMessage, "Current brief")
 		expectMessageContains(&result, &details, finalMessage, "Previous brief")
-		expectMessageContains(&result, &details, finalMessage, "OpenBrief history story 1")
-		expectMessageContains(&result, &details, finalMessage, "OpenBrief history story 2")
-		expectMessageContains(&result, &details, finalMessage, "OpenBrief history story 3")
+		expectMessageContainsAll(&result, &details, finalMessage,
+			"- [OpenBrief history story 1](<https://fixture.example/history-1>)",
+			"- [OpenBrief history story 2](<https://fixture.example/history-2>)",
+			"- [OpenBrief history story 3](<https://fixture.example/history-3>)",
+		)
 		expectLatestDeliveryMessage(db, &result, &details, "- [OpenBrief history story 3](<https://fixture.example/history-3>)")
 	case "github-release-source-must-include":
 		expectMinimumTableCount(db, &result, &details, "brief_source", 1)
@@ -174,6 +176,15 @@ func expectMessageContains(result *verificationResult, details *[]string, messag
 	}
 	result.AssistantPass = false
 	*details = append(*details, fmt.Sprintf("assistant message did not contain any of %q", values))
+}
+
+func expectMessageContainsAll(result *verificationResult, details *[]string, message string, values ...string) {
+	for _, value := range values {
+		if !strings.Contains(message, value) {
+			result.AssistantPass = false
+			*details = append(*details, fmt.Sprintf("assistant message did not contain %q", value))
+		}
+	}
 }
 
 func finishVerification(result verificationResult, details []string) verificationResult {

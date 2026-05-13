@@ -139,6 +139,10 @@ Final answer rules:
 - If `previous_briefs` is non-empty, answer in this compact shape: a `Current brief`
   heading, the current brief body, then up to two `Previous brief (<delivered_at>)`
   sections from `previous_briefs` in JSON order.
+- In each previous section, render that entry's `message` exactly as recorded.
+  Do not summarize, paraphrase, strip links, or turn previous entries into
+  prose such as "Delivered 7 items, including ...". Preserve Markdown links,
+  `NO_REPLY`, and any health footnote text in the recorded previous message.
 
 Validation rejections are JSON results with `rejected: true`. Runtime failures
 exit non-zero and write errors to stderr.

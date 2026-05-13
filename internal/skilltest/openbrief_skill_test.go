@@ -42,6 +42,28 @@ func TestOpenBriefSkillUsesInstalledRunnerAndDBOnlyConfig(t *testing.T) {
 	}
 }
 
+func TestOpenBriefSkillPreservesPreviousBriefMessages(t *testing.T) {
+	t.Parallel()
+
+	content, err := os.ReadFile(filepath.Join(openBriefSkillDir(t), "SKILL.md"))
+	if err != nil {
+		t.Fatalf("read skill: %v", err)
+	}
+	text := string(content)
+	for _, want := range []string{
+		"render that entry's `message` exactly as recorded",
+		"Do not summarize, paraphrase, strip links",
+		"Delivered 7 items, including",
+		"Preserve Markdown links",
+		"`NO_REPLY`",
+		"health footnote",
+	} {
+		if !strings.Contains(text, want) {
+			t.Fatalf("skill missing previous brief rendering rule %q", want)
+		}
+	}
+}
+
 func openBriefSkillDir(t *testing.T) string {
 	t.Helper()
 	_, file, _, ok := runtime.Caller(0)
