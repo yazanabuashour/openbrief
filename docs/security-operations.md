@@ -31,7 +31,7 @@ This runbook defines recurring security work for OpenBrief maintainers. It compl
 
 - Runner configuration and delivery behavior should have focused validation and idempotency tests before release.
 - Storage migrations should include migration tests and explicit compatibility expectations.
-- Skill policy changes should run `mise exec -- ./scripts/validate-agent-skill.sh skills/openbrief` and the relevant production agent eval gate before release.
+- Skill policy changes should run `mise exec -- ./scripts/validate-all-agent-skills.sh` and the relevant production agent eval gate before release.
 - Release-pipeline changes should run `mise exec -- ./scripts/validate-release-docs.sh <tag>` for the target tag and verify the expected release asset, checksum, SBOM, and attestation behavior.
 - Add fuzzing or property-style tests when parsing, normalization, target resolution, or import logic becomes complex enough that table tests no longer cover realistic malformed input.
 - Abuse-case tests should be added before introducing remote APIs, hosted services, secrets-backed integrations, self-hosted runners, or broad automation write privileges.

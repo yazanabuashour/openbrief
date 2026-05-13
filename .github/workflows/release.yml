@@ -29,8 +29,8 @@ jobs:
       - name: Run lint
         run: go run github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.11.4 run
 
-      - name: Validate Agent Skill
-        run: ./scripts/validate-agent-skill.sh skills/openbrief
+      - name: Validate Agent Skills
+        run: ./scripts/validate-all-agent-skills.sh
 
       - name: Run tests
         run: go test ./...
