@@ -13,6 +13,39 @@ type SentItem struct {
 	SentAt time.Time `json:"sent_at"`
 }
 
+type Delivery struct {
+	RunID       string
+	Message     string
+	DeliveredAt time.Time
+}
+
+func (s *Store) RecentDeliveries(ctx context.Context, limit int) ([]Delivery, error) {
+	if limit <= 0 {
+		limit = 2
+	}
+	rows, err := s.db.QueryContext(ctx, `
+SELECT run_id, message, delivered_at FROM delivery
+ORDER BY delivered_at DESC, id DESC
+LIMIT ?`, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer func() {
+		_ = rows.Close()
+	}()
+	var deliveries []Delivery
+	for rows.Next() {
+		var delivery Delivery
+		var deliveredAt string
+		if err := rows.Scan(&delivery.RunID, &delivery.Message, &deliveredAt); err != nil {
+			return nil, err
+		}
+		delivery.DeliveredAt, _ = time.Parse(time.RFC3339Nano, deliveredAt)
+		deliveries = append(deliveries, delivery)
+	}
+	return deliveries, rows.Err()
+}
+
 func (s *Store) RecentSentItems(ctx context.Context, since time.Time) ([]SentItem, error) {
 	rows, err := s.db.QueryContext(ctx, `
 SELECT title, url, sent_at FROM sent_item

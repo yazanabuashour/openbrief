@@ -147,6 +147,7 @@ type fakeBriefStore struct {
 	sources             []Source
 	runtimeConfig       map[string]string
 	runtimeConfigWrites map[string]string
+	deliveries          []sqlite.Delivery
 	sourceStates        map[string]*sqlite.SourceState
 	sourceStateWrites   []sqlite.SourceState
 	fetchLogs           []sqlite.FetchLog
@@ -176,6 +177,10 @@ func (s *fakeBriefStore) ListSources(context.Context, bool) ([]Source, error) {
 func (s *fakeBriefStore) StartRun(context.Context, bool) (string, error) {
 	s.started = true
 	return "run-1", nil
+}
+
+func (s *fakeBriefStore) RecentDeliveries(context.Context, int) ([]sqlite.Delivery, error) {
+	return s.deliveries, nil
 }
 
 func (s *fakeBriefStore) RecentSentItems(_ context.Context, since time.Time) ([]sqlite.SentItem, error) {

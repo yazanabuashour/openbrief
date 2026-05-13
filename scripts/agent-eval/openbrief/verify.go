@@ -45,6 +45,18 @@ func verifyScenario(dbPath string, scenarioID string, finalMessage string, metri
 		expectRuntimeConfigValue(db, &result, &details, "max_delivery_items", "2")
 		expectMarkdownBulletCount(&result, &details, finalMessage, 2)
 		expectRecordedDeliveryMessage(db, &result, &details, finalMessage)
+	case "brief-run-history":
+		expectMinimumTableCount(db, &result, &details, "brief_source", 1)
+		expectMinimumTableCount(db, &result, &details, "source_state", 1)
+		expectTableCount(db, &result, &details, "delivery", 3)
+		expectTableCount(db, &result, &details, "sent_item", 3)
+		expectMarkdownBulletCount(&result, &details, finalMessage, 3)
+		expectMessageContains(&result, &details, finalMessage, "Current brief")
+		expectMessageContains(&result, &details, finalMessage, "Previous brief")
+		expectMessageContains(&result, &details, finalMessage, "OpenBrief history story 1")
+		expectMessageContains(&result, &details, finalMessage, "OpenBrief history story 2")
+		expectMessageContains(&result, &details, finalMessage, "OpenBrief history story 3")
+		expectLatestDeliveryMessage(db, &result, &details, "- [OpenBrief history story 3](<https://fixture.example/history-3>)")
 	case "github-release-source-must-include":
 		expectMinimumTableCount(db, &result, &details, "brief_source", 1)
 		expectMinimumTableCount(db, &result, &details, "source_state", 1)
@@ -124,6 +136,19 @@ func expectRecordedDeliveryMessage(db *sql.DB, result *verificationResult, detai
 	if got != want {
 		result.DatabasePass = false
 		*details = append(*details, "delivery message did not match final delivered brief")
+	}
+}
+
+func expectLatestDeliveryMessage(db *sql.DB, result *verificationResult, details *[]string, want string) {
+	var got string
+	if err := db.QueryRow("SELECT message FROM delivery ORDER BY delivered_at DESC, id DESC LIMIT 1").Scan(&got); err != nil {
+		result.DatabasePass = false
+		*details = append(*details, fmt.Sprintf("delivery message: %v", err))
+		return
+	}
+	if got != want {
+		result.DatabasePass = false
+		*details = append(*details, fmt.Sprintf("latest delivery message = %q, want %q", got, want))
 	}
 }
 

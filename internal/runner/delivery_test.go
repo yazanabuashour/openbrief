@@ -3,12 +3,15 @@ package runner
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
+	"github.com/yazanabuashour/openbrief/internal/runclient"
 	"github.com/yazanabuashour/openbrief/internal/storage/sqlite"
 )
 
@@ -36,6 +39,9 @@ func TestRSSRunUpdatesStateAndRepeatNoReply(t *testing.T) {
 	}
 	if first.Rejected || len(first.Candidates) != 1 || first.Candidates[0].Title != "First item" {
 		t.Fatalf("first = %+v", first)
+	}
+	if len(first.PreviousBriefs) != 0 {
+		t.Fatalf("first PreviousBriefs = %+v, want empty", first.PreviousBriefs)
 	}
 	second, err := RunBriefTask(ctx, cfg, BriefTaskRequest{Action: BriefActionRun})
 	if err != nil {
@@ -113,6 +119,102 @@ func TestRecordDeliverySuppressesRecentItem(t *testing.T) {
 	}
 	if len(second.Candidates) != 0 || len(second.Suppressed) != 1 || second.Suppressed[0].Reason != "recently_sent" {
 		t.Fatalf("second = %+v", second)
+	}
+}
+
+func TestRunBriefIncludesPreviousTwoBriefs(t *testing.T) {
+	ctx := context.Background()
+	current := 1
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte(rssFixture(
+			fmt.Sprintf("History story %d", current),
+			fmt.Sprintf("https://example.com/history-%d", current),
+			fmt.Sprintf("history-guid-%d", current),
+		)))
+	}))
+	defer server.Close()
+
+	cfg := testConfig(t)
+	configureSource(t, cfg, Source{
+		Key:       "history",
+		Label:     "History",
+		Kind:      sqlite.SourceKindRSS,
+		URL:       server.URL,
+		Section:   "technology",
+		Threshold: sqlite.ThresholdMedium,
+		Enabled:   true,
+	})
+
+	for i := 1; i <= 3; i++ {
+		current = i
+		result, err := RunBriefTask(ctx, cfg, BriefTaskRequest{Action: BriefActionRun})
+		if err != nil {
+			t.Fatalf("run %d RunBriefTask: %v", i, err)
+		}
+		message := fmt.Sprintf("- [History story %d](<https://example.com/history-%d>)", i, i)
+		_, err = RunBriefTask(ctx, cfg, BriefTaskRequest{
+			Action:  BriefActionRecordDelivery,
+			RunID:   result.RunID,
+			Message: message,
+		})
+		if err != nil {
+			t.Fatalf("record delivery %d: %v", i, err)
+		}
+	}
+
+	current = 4
+	result, err := RunBriefTask(ctx, cfg, BriefTaskRequest{Action: BriefActionRun})
+	if err != nil {
+		t.Fatalf("fourth RunBriefTask: %v", err)
+	}
+	if len(result.Candidates) != 1 || result.Candidates[0].Title != "History story 4" {
+		t.Fatalf("fourth result candidates = %+v", result.Candidates)
+	}
+	if len(result.PreviousBriefs) != 2 {
+		t.Fatalf("PreviousBriefs = %+v, want 2", result.PreviousBriefs)
+	}
+	if result.PreviousBriefs[0].Message != "- [History story 3](<https://example.com/history-3>)" ||
+		result.PreviousBriefs[1].Message != "- [History story 2](<https://example.com/history-2>)" {
+		t.Fatalf("PreviousBriefs = %+v", result.PreviousBriefs)
+	}
+	if result.PreviousBriefs[0].DeliveredAt == "" || result.PreviousBriefs[1].DeliveredAt == "" {
+		t.Fatalf("PreviousBriefs missing delivered_at: %+v", result.PreviousBriefs)
+	}
+}
+
+func TestRecordDeliveryStoresNoReplyWithoutSentItems(t *testing.T) {
+	ctx := context.Background()
+	cfg := testConfig(t)
+
+	_, err := RunBriefTask(ctx, cfg, BriefTaskRequest{
+		Action:  BriefActionRecordDelivery,
+		RunID:   "run-no-reply",
+		Message: "NO_REPLY",
+	})
+	if err != nil {
+		t.Fatalf("record NO_REPLY delivery: %v", err)
+	}
+
+	rt, err := runclient.Open(ctx, cfg)
+	if err != nil {
+		t.Fatalf("open runtime: %v", err)
+	}
+	defer func() {
+		_ = rt.Close()
+	}()
+	deliveries, err := rt.Store().RecentDeliveries(ctx, 2)
+	if err != nil {
+		t.Fatalf("RecentDeliveries: %v", err)
+	}
+	if len(deliveries) != 1 || deliveries[0].RunID != "run-no-reply" || deliveries[0].Message != "NO_REPLY" {
+		t.Fatalf("deliveries = %+v", deliveries)
+	}
+	sent, err := rt.Store().RecentSentItems(ctx, time.Time{})
+	if err != nil {
+		t.Fatalf("RecentSentItems: %v", err)
+	}
+	if len(sent) != 0 {
+		t.Fatalf("sent items = %+v, want none", sent)
 	}
 }
 

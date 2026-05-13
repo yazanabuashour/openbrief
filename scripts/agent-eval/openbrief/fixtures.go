@@ -12,7 +12,8 @@ func prepareScenarioFixtures(current scenario, runDir string) (scenario, error) 
 	needsFeed := scenarioContains(current, "https://github.blog/feed/")
 	needsReleases := scenarioContains(current, "repository openai/codex")
 	needsLimitFeeds := current.ID == "configured-max-delivery-items"
-	if !needsFeed && !needsReleases && !needsLimitFeeds {
+	needsHistoryFeeds := current.ID == "brief-run-history"
+	if !needsFeed && !needsReleases && !needsLimitFeeds && !needsHistoryFeeds {
 		return current, nil
 	}
 	fixtureDir := filepath.Join(runDir, "fixtures")
@@ -46,6 +47,21 @@ func prepareScenarioFixtures(current scenario, runDir string) (scenario, error) 
 			limitFeedURLs = append(limitFeedURLs, (&url.URL{Scheme: "file", Path: path}).String())
 		}
 	}
+	var historyFeedURLs []string
+	if needsHistoryFeeds {
+		for i := 1; i <= 3; i++ {
+			path := filepath.Join(fixtureDir, fmt.Sprintf("history-%d.xml", i))
+			content := fmt.Sprintf(`<?xml version="1.0"?>
+<rss version="2.0"><channel>
+<title>OpenBrief history fixture %d</title>
+<item><title>OpenBrief history story %d</title><link>https://fixture.example/history-%d</link><guid>history-guid-%d</guid><pubDate>Thu, 23 Apr 2026 02:0%d:00 GMT</pubDate></item>
+</channel></rss>`, i, i, i, i, i)
+			if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+				return scenario{}, err
+			}
+			historyFeedURLs = append(historyFeedURLs, (&url.URL{Scheme: "file", Path: path}).String())
+		}
+	}
 	releases := `[{"tag_name":"v1.2.3","name":"OpenBrief fixture release","html_url":"https://fixture.example/releases/tag/v1.2.3","published_at":"2026-04-23T01:00:00Z","draft":false,"prerelease":false}]`
 	if needsReleases {
 		if err := os.WriteFile(releasePath, []byte(releases), 0o644); err != nil {
@@ -60,6 +76,9 @@ func prepareScenarioFixtures(current scenario, runDir string) (scenario, error) 
 		prompt = strings.ReplaceAll(prompt, "repository openai/codex with key", "repository openai/codex using source URL "+replacementReleases+" with key")
 		for i, value := range limitFeedURLs {
 			prompt = strings.ReplaceAll(prompt, fmt.Sprintf("https://example.com/openbrief-limit-%d.xml", i+1), value)
+		}
+		for i, value := range historyFeedURLs {
+			prompt = strings.ReplaceAll(prompt, fmt.Sprintf("https://example.com/openbrief-history-%d.xml", i+1), value)
 		}
 		return prompt
 	}

@@ -45,6 +45,7 @@ type BriefTaskResult struct {
 	RunID                string                     `json:"run_id,omitempty"`
 	MustInclude          []BriefItem                `json:"must_include,omitempty"`
 	Candidates           []BriefItem                `json:"candidates,omitempty"`
+	PreviousBriefs       []PreviousBrief            `json:"previous_briefs,omitempty"`
 	RecentSent           []SentItem                 `json:"recent_sent,omitempty"`
 	Suppressed           []SuppressedItem           `json:"suppressed,omitempty"`
 	SuppressedRecent     []SuppressedRecentItem     `json:"suppressed_recent,omitempty"`
@@ -56,6 +57,12 @@ type BriefTaskResult struct {
 	MaxDeliveryItems     int                        `json:"max_delivery_items,omitempty"`
 	SentItems            []SentItem                 `json:"sent_items,omitempty"`
 	Summary              string                     `json:"summary"`
+}
+
+type PreviousBrief struct {
+	RunID       string `json:"run_id"`
+	DeliveredAt string `json:"delivered_at"`
+	Message     string `json:"message"`
 }
 
 type BriefItem struct {

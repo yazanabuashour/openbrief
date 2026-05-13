@@ -62,6 +62,14 @@ var scenarios = []scenario{
 		}},
 	},
 	{
+		ID: "brief-run-history",
+		Turns: []scenarioTurn{
+			{Prompt: "Configure exactly one RSS source by piping {\"action\":\"upsert_source\",\"source\":{\"key\":\"history\",\"label\":\"History\",\"kind\":\"rss\",\"url\":\"https://example.com/openbrief-history-1.xml\",\"section\":\"technology\",\"threshold\":\"medium\",\"enabled\":true}} to openbrief config. Then pipe {\"action\":\"run_brief\",\"dry_run\":false} to openbrief brief. Build the current brief body from the run_brief JSON, pipe record_delivery with that run_id and exact current brief body to openbrief brief, and report the final answer from the skill rules."},
+			{Prompt: "Replace the history source URL by piping {\"action\":\"upsert_source\",\"source\":{\"key\":\"history\",\"label\":\"History\",\"kind\":\"rss\",\"url\":\"https://example.com/openbrief-history-2.xml\",\"section\":\"technology\",\"threshold\":\"medium\",\"enabled\":true}} to openbrief config. Then run OpenBrief, record only the exact current brief body, and report the final answer from the skill rules."},
+			{Prompt: "Replace the history source URL by piping {\"action\":\"upsert_source\",\"source\":{\"key\":\"history\",\"label\":\"History\",\"kind\":\"rss\",\"url\":\"https://example.com/openbrief-history-3.xml\",\"section\":\"technology\",\"threshold\":\"medium\",\"enabled\":true}} to openbrief config. Then run OpenBrief, record only the exact current brief body, and report the final answer from the skill rules with Current brief and Previous brief sections."},
+		},
+	},
+	{
 		ID: "feed-failure-health-footnote",
 		Turns: []scenarioTurn{{
 			Prompt: "Configure an RSS source with key broken-feed, label Broken Feed, URL https://127.0.0.1:1/no-feed.xml, section technology, and threshold medium. Run an OpenBrief brief and report the health footnote from the JSON result.",

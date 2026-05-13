@@ -22,6 +22,7 @@ var sourceFetchConcurrency = 4
 type briefStore interface {
 	ListSources(context.Context, bool) ([]Source, error)
 	StartRun(context.Context, bool) (string, error)
+	RecentDeliveries(context.Context, int) ([]sqlite.Delivery, error)
 	RecentSentItems(context.Context, time.Time) ([]sqlite.SentItem, error)
 	ListOutletPolicies(context.Context) ([]OutletPolicy, error)
 	SourceState(context.Context, string) (*sqlite.SourceState, error)
@@ -92,6 +93,11 @@ func runBriefWithDeps(ctx context.Context, deps briefRunDeps, request BriefTaskR
 	}
 	if len(sources) == 0 {
 		return rejectedBrief(paths, "no enabled sources configured"), nil
+	}
+
+	previousBriefs, err := store.RecentDeliveries(ctx, 2)
+	if err != nil {
+		return BriefTaskResult{}, err
 	}
 
 	runID := "dry-run"
@@ -234,6 +240,7 @@ func runBriefWithDeps(ctx context.Context, deps briefRunDeps, request BriefTaskR
 		RunID:                runID,
 		MustInclude:          mustInclude,
 		Candidates:           candidates,
+		PreviousBriefs:       convertPreviousBriefs(previousBriefs),
 		RecentSent:           convertSentItems(recent),
 		Suppressed:           suppressed,
 		SuppressedRecent:     suppressedRecent,

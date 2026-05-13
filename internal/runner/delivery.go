@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"regexp"
 	"strings"
+	"time"
 
 	"github.com/yazanabuashour/openbrief/internal/runclient"
 	"github.com/yazanabuashour/openbrief/internal/storage/sqlite"
@@ -58,6 +59,18 @@ func convertSentItems(items []sqlite.SentItem) []SentItem {
 	out := make([]SentItem, 0, len(items))
 	for _, item := range items {
 		out = append(out, SentItem{Title: item.Title, URL: item.URL, SentAt: item.SentAt})
+	}
+	return out
+}
+
+func convertPreviousBriefs(deliveries []sqlite.Delivery) []PreviousBrief {
+	out := make([]PreviousBrief, 0, len(deliveries))
+	for _, delivery := range deliveries {
+		out = append(out, PreviousBrief{
+			RunID:       delivery.RunID,
+			DeliveredAt: delivery.DeliveredAt.UTC().Format(time.RFC3339Nano),
+			Message:     delivery.Message,
+		})
 	}
 	return out
 }

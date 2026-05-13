@@ -111,13 +111,13 @@ Request shapes:
 {"action":"record_delivery","run_id":"run_id_from_run_brief","message":"- [Title](<https://example.com>)"}
 ```
 
-For `run_brief`, use `must_include`, `candidates`, `max_delivery_items`, `health_footnote`,
-`suppressed_recent`, `suppressed_policy`, `suppressed_unresolved`, `suppressed`,
-and `fetch_status` from the JSON result. Do not inspect any files to supplement
-the result. If the result has `rejected: true`, answer with the
-`rejection_reason`.
+For `run_brief`, use `must_include`, `candidates`, `max_delivery_items`,
+`health_footnote`, `previous_briefs`, `suppressed_recent`, `suppressed_policy`,
+`suppressed_unresolved`, `suppressed`, and `fetch_status` from the JSON result.
+Do not inspect any files to supplement the result. If the result has
+`rejected: true`, answer with the `rejection_reason`.
 
-Final answer rules:
+Current brief body rules:
 
 - Include all `must_include` items first.
 - Fill remaining slots up to `max_delivery_items` total bullets from
@@ -127,9 +127,18 @@ Final answer rules:
   items and no `candidates`.
 - Use suppressed hyperlinks only: `- [Title](<https://example.com>)`.
 - If `health_footnote` is non-empty, append it as plain text after bullets.
-- If there are no bullets and no health footnote, answer exactly `NO_REPLY`.
-- Before the final answer, call `record_delivery` with the exact outgoing
-  message when the message is not `NO_REPLY`.
+- If there are no bullets and no health footnote, the current brief body is
+  exactly `NO_REPLY`.
+- Before the final answer, call `record_delivery` with the exact current brief
+  body, including `NO_REPLY`. Do not include prior brief history in the recorded
+  `message`.
+
+Final answer rules:
+
+- If `previous_briefs` is empty, answer with only the current brief body.
+- If `previous_briefs` is non-empty, answer in this compact shape: a `Current brief`
+  heading, the current brief body, then up to two `Previous brief (<delivered_at>)`
+  sections from `previous_briefs` in JSON order.
 
 Validation rejections are JSON results with `rejected: true`. Runtime failures
 exit non-zero and write errors to stderr.

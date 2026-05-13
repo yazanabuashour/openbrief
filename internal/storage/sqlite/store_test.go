@@ -4,6 +4,7 @@ import (
 	"context"
 	"path/filepath"
 	"testing"
+	"time"
 )
 
 func TestStoreInitializesEmptyConfig(t *testing.T) {
@@ -160,5 +161,44 @@ func TestReplaceSourcesStoresGenericProcessingFields(t *testing.T) {
 		got.PriorityRank != 3 ||
 		!got.AlwaysReport {
 		t.Fatalf("source = %+v", got)
+	}
+}
+
+func TestRecentDeliveriesReturnsLatestTwoWithIDTieBreak(t *testing.T) {
+	ctx := context.Background()
+	store, err := New(ctx, Config{DatabasePath: filepath.Join(t.TempDir(), "openbrief.sqlite")})
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	defer func() {
+		_ = store.Close()
+	}()
+
+	older := time.Date(2026, 4, 23, 1, 0, 0, 0, time.UTC)
+	tie := time.Date(2026, 4, 23, 2, 0, 0, 0, time.UTC)
+	store.now = func() time.Time { return older }
+	if _, err := store.InsertDelivery(ctx, "run-old", "old", nil); err != nil {
+		t.Fatalf("insert old delivery: %v", err)
+	}
+	store.now = func() time.Time { return tie }
+	if _, err := store.InsertDelivery(ctx, "run-second", "second", nil); err != nil {
+		t.Fatalf("insert second delivery: %v", err)
+	}
+	if _, err := store.InsertDelivery(ctx, "run-third", "third", nil); err != nil {
+		t.Fatalf("insert third delivery: %v", err)
+	}
+
+	deliveries, err := store.RecentDeliveries(ctx, 2)
+	if err != nil {
+		t.Fatalf("RecentDeliveries: %v", err)
+	}
+	if len(deliveries) != 2 {
+		t.Fatalf("deliveries = %+v, want 2", deliveries)
+	}
+	if deliveries[0].RunID != "run-third" || deliveries[0].Message != "third" || !deliveries[0].DeliveredAt.Equal(tie) {
+		t.Fatalf("first delivery = %+v", deliveries[0])
+	}
+	if deliveries[1].RunID != "run-second" || deliveries[1].Message != "second" || !deliveries[1].DeliveredAt.Equal(tie) {
+		t.Fatalf("second delivery = %+v", deliveries[1])
 	}
 }

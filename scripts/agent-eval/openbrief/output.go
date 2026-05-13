@@ -156,7 +156,7 @@ func updateHygieneMetrics(metrics *scenarioMetrics, command string) {
 		metrics.BroadRepoSearch = true
 		addEvidence("broad_repo_search")
 	}
-	if !allowedSkillRead && (strings.Contains(lower, "cat ") || strings.Contains(lower, "sed ") || strings.Contains(lower, "ls ")) {
+	if !allowedSkillRead && !isHereDocCatPipe(lower) && (strings.Contains(lower, "cat ") || strings.Contains(lower, "sed ") || strings.Contains(lower, "ls ")) {
 		metrics.RepoInspection = true
 		addEvidence("repo_inspection")
 	}
@@ -164,6 +164,10 @@ func updateHygieneMetrics(metrics *scenarioMetrics, command string) {
 		metrics.EnvironmentAccess = true
 		addEvidence("environment_access")
 	}
+}
+
+func isHereDocCatPipe(lower string) bool {
+	return strings.Contains(lower, "cat <<") && strings.Contains(lower, "|") && strings.Contains(lower, "openbrief ")
 }
 
 func isAllowedInstalledSkillRead(lower string) bool {

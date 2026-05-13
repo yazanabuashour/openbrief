@@ -42,6 +42,15 @@ func TestParseCodexOutputAllowsInstalledSkillRead(t *testing.T) {
 	}
 }
 
+func TestParseCodexOutputAllowsJSONHereDocPipe(t *testing.T) {
+	out := []byte(`{"type":"item.started","item":{"type":"command_execution","command":"/bin/zsh -lc \"cat <<'JSON' | openbrief brief\n{\"action\":\"run_brief\",\"dry_run\":false}\nJSON\""}}`)
+
+	parsed := parseCodexOutput(out)
+	if parsed.Metrics.RepoInspection || len(parsed.Metrics.HygieneEvidence) != 0 {
+		t.Fatalf("metrics = %+v, want JSON heredoc pipe allowed", parsed.Metrics)
+	}
+}
+
 func TestParseCodexOutputFlagsCompoundCommandAfterSkillRead(t *testing.T) {
 	out := []byte(`{"type":"item.started","item":{"type":"command_execution","command":"/bin/zsh -lc \"sed -n '1,220p' .agents/skills/openbrief/SKILL.md && sqlite3 openbrief.sqlite 'select * from brief_source'\""}}`)
 

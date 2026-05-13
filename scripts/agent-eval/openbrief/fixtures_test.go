@@ -46,6 +46,25 @@ func TestPrepareScenarioFixturesRewritesConfiguredMaxDeliveryFeeds(t *testing.T)
 	}
 }
 
+func TestPrepareScenarioFixturesRewritesBriefHistoryFeeds(t *testing.T) {
+	current := scenario{
+		ID: "brief-run-history",
+		Turns: []scenarioTurn{{
+			Prompt: "Use https://example.com/openbrief-history-1.xml and https://example.com/openbrief-history-2.xml and https://example.com/openbrief-history-3.xml.",
+		}},
+	}
+	rewritten, err := prepareScenarioFixtures(current, t.TempDir())
+	if err != nil {
+		t.Fatalf("prepareScenarioFixtures: %v", err)
+	}
+	if strings.Contains(rewritten.Turns[0].Prompt, "https://example.com/openbrief-history-") {
+		t.Fatalf("prompt was not rewritten: %s", rewritten.Turns[0].Prompt)
+	}
+	if got := strings.Count(rewritten.Turns[0].Prompt, "file://"); got != 3 {
+		t.Fatalf("file URL count = %d, want 3 in %s", got, rewritten.Turns[0].Prompt)
+	}
+}
+
 func TestCopyRepoSkipsIgnoredDatabaseFiles(t *testing.T) {
 	src := t.TempDir()
 	dst := filepath.Join(t.TempDir(), "repo")
