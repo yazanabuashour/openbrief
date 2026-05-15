@@ -15,6 +15,7 @@ var deliveryBulletPattern = regexp.MustCompile(`(?m)^-\s+\[([^\]]+)\]\(<([^>]+)>
 
 type deliveryStore interface {
 	InsertDelivery(context.Context, string, string, []sqlite.SentItem) ([]sqlite.SentItem, error)
+	RecentDeliveries(context.Context, int) ([]sqlite.Delivery, error)
 }
 
 func recordDelivery(ctx context.Context, rt *runclient.Runtime, request BriefTaskRequest) (BriefTaskResult, error) {
@@ -33,12 +34,23 @@ func recordDeliveryWithStore(ctx context.Context, paths Paths, store deliverySto
 	if err != nil {
 		return BriefTaskResult{}, err
 	}
-	return BriefTaskResult{
-		Paths:     paths,
-		RunID:     request.RunID,
-		SentItems: convertSentItems(stored),
-		Summary:   fmt.Sprintf("recorded delivery with %d sent items", len(stored)),
-	}, nil
+	result := BriefTaskResult{
+		Paths:       paths,
+		RunID:       request.RunID,
+		SentItems:   convertSentItems(stored),
+		FinalAnswer: buildCurrentDeliveryFinalAnswer(request.Message),
+		Summary:     fmt.Sprintf("recorded delivery with %d sent items", len(stored)),
+	}
+	deliveries, err := store.RecentDeliveries(ctx, 3)
+	if err != nil {
+		return result, nil
+	}
+	deliveryRecords := convertDeliveryRecords(deliveries)
+	result.Deliveries = deliveryRecords
+	if finalAnswer := buildDeliveryFinalAnswer(deliveryRecords); finalAnswer != "" {
+		result.FinalAnswer = finalAnswer
+	}
+	return result, nil
 }
 
 func parseDeliveryMessage(message string) []sqlite.SentItem {
@@ -73,4 +85,42 @@ func convertPreviousBriefs(deliveries []sqlite.Delivery) []PreviousBrief {
 		})
 	}
 	return out
+}
+
+func convertDeliveryRecords(deliveries []sqlite.Delivery) []DeliveryRecord {
+	out := make([]DeliveryRecord, 0, len(deliveries))
+	for _, delivery := range deliveries {
+		out = append(out, DeliveryRecord{
+			RunID:       delivery.RunID,
+			DeliveredAt: delivery.DeliveredAt.UTC().Format(time.RFC3339Nano),
+			Message:     delivery.Message,
+		})
+	}
+	return out
+}
+
+func buildDeliveryFinalAnswer(deliveries []DeliveryRecord) string {
+	if len(deliveries) == 0 {
+		return ""
+	}
+	var b strings.Builder
+	for i, delivery := range deliveries {
+		if i > 0 {
+			b.WriteString("\n\n")
+		}
+		if i == 0 {
+			b.WriteString("Current brief")
+		} else {
+			b.WriteString("Previous brief (")
+			b.WriteString(delivery.DeliveredAt)
+			b.WriteString(")")
+		}
+		b.WriteString("\n\n")
+		b.WriteString(delivery.Message)
+	}
+	return b.String()
+}
+
+func buildCurrentDeliveryFinalAnswer(message string) string {
+	return "Current brief\n\n" + message
 }

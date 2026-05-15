@@ -3,11 +3,13 @@ package runner
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -186,13 +188,16 @@ func TestRecordDeliveryStoresNoReplyWithoutSentItems(t *testing.T) {
 	ctx := context.Background()
 	cfg := testConfig(t)
 
-	_, err := RunBriefTask(ctx, cfg, BriefTaskRequest{
+	result, err := RunBriefTask(ctx, cfg, BriefTaskRequest{
 		Action:  BriefActionRecordDelivery,
 		RunID:   "run-no-reply",
 		Message: "NO_REPLY",
 	})
 	if err != nil {
 		t.Fatalf("record NO_REPLY delivery: %v", err)
+	}
+	if result.FinalAnswer != "Current brief\n\nNO_REPLY" {
+		t.Fatalf("FinalAnswer = %q", result.FinalAnswer)
 	}
 
 	rt, err := runclient.Open(ctx, cfg)
@@ -216,6 +221,97 @@ func TestRecordDeliveryStoresNoReplyWithoutSentItems(t *testing.T) {
 	if len(sent) != 0 {
 		t.Fatalf("sent items = %+v, want none", sent)
 	}
+}
+
+func TestRecordDeliveryReturnsLatestThreeDeliveriesAndFinalAnswer(t *testing.T) {
+	ctx := context.Background()
+	cfg := testConfig(t)
+	messages := []string{
+		"- [One](<https://example.com/one>)",
+		"NO_REPLY",
+		"- [Three](<https://example.com/three>)\nFeed health changes - NEW: `techbuzz`.",
+		"- [Four](<https://example.com/four>)",
+	}
+
+	for i, message := range messages {
+		result, err := RunBriefTask(ctx, cfg, BriefTaskRequest{
+			Action:  BriefActionRecordDelivery,
+			RunID:   fmt.Sprintf("run-%d", i+1),
+			Message: message,
+		})
+		if err != nil {
+			t.Fatalf("record delivery %d: %v", i+1, err)
+		}
+		wantCount := i + 1
+		if wantCount > 3 {
+			wantCount = 3
+		}
+		if len(result.Deliveries) != wantCount {
+			t.Fatalf("delivery %d returned %d deliveries, want %d: %+v", i+1, len(result.Deliveries), wantCount, result.Deliveries)
+		}
+		for j, delivery := range result.Deliveries {
+			wantIndex := i - j
+			wantRunID := fmt.Sprintf("run-%d", wantIndex+1)
+			if delivery.RunID != wantRunID || delivery.Message != messages[wantIndex] || delivery.DeliveredAt == "" {
+				t.Fatalf("delivery %d record %d = %+v, want run_id=%q message=%q with delivered_at", i+1, j, delivery, wantRunID, messages[wantIndex])
+			}
+		}
+		if result.FinalAnswer != expectedDeliveryFinalAnswer(result.Deliveries) {
+			t.Fatalf("delivery %d FinalAnswer = %q, want %q", i+1, result.FinalAnswer, expectedDeliveryFinalAnswer(result.Deliveries))
+		}
+	}
+}
+
+func TestRecordDeliveryHistoryReadFailureStillReturnsRecordedCurrentBrief(t *testing.T) {
+	ctx := context.Background()
+	store := failingHistoryDeliveryStore{}
+
+	result, err := recordDeliveryWithStore(ctx, Paths{DatabasePath: "openbrief.sqlite"}, store, BriefTaskRequest{
+		Action:  BriefActionRecordDelivery,
+		RunID:   "run-1",
+		Message: "- [One](<https://example.com/one>)",
+	})
+	if err != nil {
+		t.Fatalf("recordDeliveryWithStore returned error after committed insert: %v", err)
+	}
+	if result.FinalAnswer != "Current brief\n\n- [One](<https://example.com/one>)" {
+		t.Fatalf("FinalAnswer = %q", result.FinalAnswer)
+	}
+	if len(result.Deliveries) != 0 {
+		t.Fatalf("Deliveries = %+v, want empty when history read fails", result.Deliveries)
+	}
+	if len(result.SentItems) != 1 || result.SentItems[0].Title != "One" {
+		t.Fatalf("SentItems = %+v", result.SentItems)
+	}
+}
+
+type failingHistoryDeliveryStore struct{}
+
+func (failingHistoryDeliveryStore) InsertDelivery(_ context.Context, _ string, _ string, items []sqlite.SentItem) ([]sqlite.SentItem, error) {
+	return items, nil
+}
+
+func (failingHistoryDeliveryStore) RecentDeliveries(context.Context, int) ([]sqlite.Delivery, error) {
+	return nil, errors.New("history unavailable")
+}
+
+func expectedDeliveryFinalAnswer(deliveries []DeliveryRecord) string {
+	var b strings.Builder
+	for i, delivery := range deliveries {
+		if i > 0 {
+			b.WriteString("\n\n")
+		}
+		if i == 0 {
+			b.WriteString("Current brief")
+		} else {
+			b.WriteString("Previous brief (")
+			b.WriteString(delivery.DeliveredAt)
+			b.WriteString(")")
+		}
+		b.WriteString("\n\n")
+		b.WriteString(delivery.Message)
+	}
+	return b.String()
 }
 
 func TestAlwaysReportBypassesRecentSuppression(t *testing.T) {

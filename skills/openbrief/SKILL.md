@@ -135,10 +135,16 @@ Current brief body rules:
 
 Final answer rules:
 
-- If `previous_briefs` is empty, answer with only the current brief body.
-- If `previous_briefs` is non-empty, answer in this compact shape: a `Current brief`
-  heading, the current brief body, then up to two `Previous brief (<delivered_at>)`
-  sections from `previous_briefs` in JSON order.
+- If the `record_delivery` result includes `final_answer`, answer with exactly
+  that string and ignore `run_brief.previous_briefs`.
+- `record_delivery.final_answer` contains the latest three delivery records from
+  the runner-owned delivery table: `Current brief` for the just-recorded
+  delivery, then up to two `Previous brief (<delivered_at>)` sections.
+- If `record_delivery.final_answer` is absent, fall back to the legacy
+  `run_brief.previous_briefs` rules: if `previous_briefs` is empty, answer with
+  only the current brief body; otherwise answer with a `Current brief` heading,
+  the current brief body, then up to two previous sections from
+  `previous_briefs` in JSON order.
 - In each previous section, render that entry's `message` exactly as recorded.
   Do not summarize, paraphrase, strip links, or turn previous entries into
   prose such as "Delivered 7 items, including ...". Preserve Markdown links,

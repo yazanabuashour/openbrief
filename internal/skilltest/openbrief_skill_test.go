@@ -51,6 +51,9 @@ func TestOpenBriefSkillPreservesPreviousBriefMessages(t *testing.T) {
 	}
 	text := string(content)
 	for _, want := range []string{
+		"`record_delivery` result includes `final_answer`",
+		"ignore `run_brief.previous_briefs`",
+		"latest three delivery records",
 		"render that entry's `message` exactly as recorded",
 		"Do not summarize, paraphrase, strip links",
 		"Delivered 7 items, including",

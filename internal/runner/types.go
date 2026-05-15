@@ -56,10 +56,18 @@ type BriefTaskResult struct {
 	HealthDelta          sqlite.HealthDelta         `json:"health_delta,omitempty"`
 	MaxDeliveryItems     int                        `json:"max_delivery_items,omitempty"`
 	SentItems            []SentItem                 `json:"sent_items,omitempty"`
+	Deliveries           []DeliveryRecord           `json:"deliveries,omitempty"`
+	FinalAnswer          string                     `json:"final_answer,omitempty"`
 	Summary              string                     `json:"summary"`
 }
 
 type PreviousBrief struct {
+	RunID       string `json:"run_id"`
+	DeliveredAt string `json:"delivered_at"`
+	Message     string `json:"message"`
+}
+
+type DeliveryRecord struct {
 	RunID       string `json:"run_id"`
 	DeliveredAt string `json:"delivered_at"`
 	Message     string `json:"message"`
