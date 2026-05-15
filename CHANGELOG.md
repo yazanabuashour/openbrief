@@ -5,6 +5,10 @@ published with GitHub Releases and mirrored in `docs/release-notes/`.
 
 ## Releases
 
+- [v0.1.8](https://github.com/yazanabuashour/openbrief/releases/tag/v0.1.8)
+  adds `record_delivery` delivery-history output and a ready-to-send final
+  answer so agents can return the current brief plus two prior deliveries
+  without reconstructing history from large `run_brief` payloads.
 - [v0.1.7](https://github.com/yazanabuashour/openbrief/releases/tag/v0.1.7)
   fixes previous-brief rendering guidance so recorded previous brief bodies keep
   their Markdown links, strengthens regression coverage for the history eval,
